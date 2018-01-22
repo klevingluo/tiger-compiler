@@ -56,7 +56,7 @@ array => (Tokens.ARRAY(yypos,yypos + 5 ));
 "," => (Tokens.COMMA(yypos,yypos + 1 ));
 {digits} => (Tokens.INT(valOf(Int.fromString(yytext)), yypos,yypos + size yytext ));
 "$" => (Tokens.COMMA(yypos,yypos + 1 ));
-.\n => (lineNum := !lineNum+1; linePos := yypos :: !linePos; continue());
+\n => (lineNum := !lineNum+1; linePos := yypos :: !linePos; continue());
 " " => (continue());
 \$  => (continue());
 \t  => (continue());
