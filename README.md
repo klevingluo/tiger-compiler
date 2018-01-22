@@ -2,8 +2,8 @@
 CS 4410 project: Tiger MIPS compiler
 
 ## running: 
-- run ml-lex tiger.lex to generate the lex files
-- run sml test.sml to load all of the files necessary to parse a file
+- run sml test.sml to load all of the files necessary to parse a file, and run
+  ml-lex
 - type Parse.parse("path-to-file") to get the result of parsing a single file
 
 ## TODO

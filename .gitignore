@@ -1,2 +1,6 @@
 # no vim undo files
 **.un~
+*.swp
+
+# no compiled files
+.cm/
