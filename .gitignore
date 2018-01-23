@@ -1,2 +1,6 @@
 # no vim undo files
 **.un~
+
+# no tmp build files
+.cm/
+tiger.lex.sml
