@@ -1,13 +1,7 @@
 # no vim undo files
 **.un~
-<<<<<<< HEAD
 *.swp
-
-# no compiled files
-.cm/
-=======
 
 # no tmp build files
 .cm/
 tiger.lex.sml
->>>>>>> 534af20a82579636a040960239b4123230a4df25
