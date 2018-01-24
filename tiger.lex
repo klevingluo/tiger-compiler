@@ -11,7 +11,8 @@ fun eof() = let val pos = hd(!linePos) in Tokens.EOF(pos,pos) end
 
 val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
 fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
-fun controlChar(esc) = Char.chr(indexOf(controlChars, String.sub(esc, 2)))
+fun controlChar(esc) = String.str(Char.chr(indexOf(controlChars, String.sub(esc, 2))))
+fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc,1,3)))));
 
 %%
 %s COMMENT;
@@ -73,8 +74,8 @@ string=\"([^\\\"]|{escape})*\";
 <INITIAL>\"                   => (YYBEGIN STRING; string= ref[""]; continue());
 <STRING>\\n                   => (string := "\n":: !string; continue());
 <STRING>\\t                   => (string := "\t":: !string; continue());
-<STRING>\\\^{controlChar}     => (string := String.str(controlChar(yytext)):: !string; continue());
-<STRING>\\{asciiNum}          => (string := String.str(Char.chr(valOf(Int.fromString(String.substring(yytext,1,3))))):: !string; continue());
+<STRING>\\\^{controlChar}     => (string := controlChar(yytext):: !string; continue());
+<STRING>\\{asciiNum}          => (string := asciiChar(yytext):: !string; continue());
 <STRING>\\\\                  => (string := "\\":: !string; continue());
 <STRING>\\[\t\n ]+            => (continue());
 <STRING>\\.                   => (ErrorMsg.error yypos ("illegal escape character " ^ yytext); continue());

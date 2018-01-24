@@ -4,4 +4,4 @@
 
 # no tmp build files
 .cm/
-tiger.lex.sml
+**.lex.sml
