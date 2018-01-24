@@ -4,18 +4,26 @@ type lexresult = Tokens.token
 val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
 val commentDepth = ref 0
+val string = ref [""]
 
 fun err(p1,p2) = ErrorMsg.error p1
 fun eof() = let val pos = hd(!linePos) in Tokens.EOF(pos,pos) end
 
+val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
+fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
+fun controlChar(esc) = Char.chr(indexOf(controlChars, String.sub(esc, 2)))
+
 %%
 %s COMMENT;
+%s STRING;
 digit=[0-9];
 letter=[a-zA-Z];
 character=[a-zA-Z0-9_];
 asciiNum=0[0-9][0-9]|10[0-9]|11[0-9]|12[0-7];
-escape=\\[n|t|\^[A-Za-z]|\"|\\|[\t\n ]*|{asciiNum}];
-string=\"([^\\\"]|escape)*\";
+controlChar=[A-Z]|\[|\]|\^|\/|_;
+
+escape=\\(n|t|\^[A-Za-z]|\"|\\|[\t\n ]+|{asciiNum});
+string=\"([^\\\"]|{escape})*\";
 %%
 
 <INITIAL>"type"     => (Tokens.TYPE(yypos, yypos + 4));
@@ -60,9 +68,18 @@ string=\"([^\\\"]|escape)*\";
 <INITIAL>":"  => (Tokens.COLON(yypos,yypos + 1));
 <INITIAL>","  => (Tokens.COMMA(yypos,yypos + 1));
 
-<INITIAL>{string}             => (Tokens.STRING(yytext, yypos, yypos + size(yytext)));
 <INITIAL>{digit}+             => (Tokens.INT(valOf(Int.fromString(yytext)), yypos, yypos + size(yytext)));
 <INITIAL>{letter}{character}* => (Tokens.ID(yytext, yypos, yypos + size(yytext)));
+<INITIAL>\"                   => (YYBEGIN STRING; string= ref[""]; continue());
+<STRING>\\n                   => (string := "\n":: !string; continue());
+<STRING>\\t                   => (string := "\t":: !string; continue());
+<STRING>\\\^{controlChar}     => (string := String.str(controlChar(yytext)):: !string; continue());
+<STRING>\\{asciiNum}          => (string := String.str(Char.chr(valOf(Int.fromString(String.substring(yytext,1,3))))):: !string; continue());
+<STRING>\\\\                  => (string := "\\":: !string; continue());
+<STRING>\\[\t\n ]+            => (continue());
+<STRING>\\.                   => (ErrorMsg.error yypos ("illegal escape character " ^ yytext); continue());
+<STRING>[^\\\"]               => (string := yytext:: !string; continue());
+<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(List.foldl((op ^))("")(!string), yypos, yypos + 2));
 
 <INITIAL>" " => (continue());
 <INITIAL>\$  => (continue());
