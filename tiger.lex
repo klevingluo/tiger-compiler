@@ -33,7 +33,8 @@ datatype CharList = Nil | Cons of char * CharList;
 
 val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
 
-fun indexOf(chars, c) = let val (x::xs) = chars in if x = c then 0 else 1 + indexOf(xs, c) end
+fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
+  | indexOf([], char) = ~1
 fun controlChar(esc) = String.str(Char.chr(indexOf(controlChars, String.sub(esc, 2))))
 fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc, 1, 3)))))
 
