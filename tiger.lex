@@ -4,6 +4,8 @@ type lexresult = Tokens.token
 val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
 val commentDepth = ref 0
+
+val stringPos = ref 0
 val string = ref [""]
 
 fun err(p1,p2) = ErrorMsg.error p1
@@ -71,7 +73,7 @@ string=\"([^\\\"]|{escape})*\";
 
 <INITIAL>{digit}+             => (Tokens.INT(valOf(Int.fromString(yytext)), yypos, yypos + size(yytext)));
 <INITIAL>{letter}{character}* => (Tokens.ID(yytext, yypos, yypos + size(yytext)));
-<INITIAL>\"                   => (YYBEGIN STRING; string= ref[""]; continue());
+<INITIAL>\"                   => (YYBEGIN STRING; stringPos := yypos; string=ref[""]; continue());
 <STRING>\\n                   => (string := "\n":: !string; continue());
 <STRING>\\t                   => (string := "\t":: !string; continue());
 <STRING>\\\^{controlChar}     => (string := controlChar(yytext):: !string; continue());
@@ -80,7 +82,8 @@ string=\"([^\\\"]|{escape})*\";
 <STRING>\\[\t\n ]+            => (continue());
 <STRING>\\.                   => (ErrorMsg.error yypos ("illegal escape character " ^ yytext); continue());
 <STRING>[^\\\"]               => (string := yytext:: !string; continue());
-<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(List.foldl((op ^))("")(!string), yypos, yypos + 2));
+<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(List.foldl((op
+^))("")(!string), !stringPos, yypos + 1));
 
 <INITIAL>" " => (continue());
 <INITIAL>\$  => (continue());
