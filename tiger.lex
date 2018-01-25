@@ -6,15 +6,16 @@ val linePos = ErrorMsg.linePos
 val commentDepth = ref 0
 
 val stringPos = ref 0
-val string = ref [""]
+val string = ref [] : char list ref 
+val state = ref 0
 
 fun err(p1,p2) = ErrorMsg.error p1
 fun eof() = let val pos = hd(!linePos) in Tokens.EOF(pos,pos) end
 
 val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
 fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
-fun controlChar(esc) = String.str(Char.chr(indexOf(controlChars, String.sub(esc, 2))))
-fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc,1,3)))));
+fun controlChar(esc) = Char.chr(indexOf(controlChars, String.sub(esc, 2)))
+fun asciiChar(esc) = Char.chr(valOf(Int.fromString(String.substring(esc,1,3))));
 
 %%
 %s COMMENT;
@@ -73,17 +74,17 @@ string=\"([^\\\"]|{escape})*\";
 
 <INITIAL>{digit}+             => (Tokens.INT(valOf(Int.fromString(yytext)), yypos, yypos + size(yytext)));
 <INITIAL>{letter}{character}* => (Tokens.ID(yytext, yypos, yypos + size(yytext)));
-<INITIAL>\"                   => (YYBEGIN STRING; stringPos := yypos; string=ref[""]; continue());
-<STRING>\\n                   => (string := "\n":: !string; continue());
-<STRING>\\t                   => (string := "\t":: !string; continue());
+<INITIAL>\"                   => (YYBEGIN STRING; stringPos := yypos;
+string=ref[]; continue());
+<STRING>\\n                   => (string := #"\n":: !string; continue());
+<STRING>\\t                   => (string := #"\t":: !string; continue());
 <STRING>\\\^{controlChar}     => (string := controlChar(yytext):: !string; continue());
 <STRING>\\{asciiNum}          => (string := asciiChar(yytext):: !string; continue());
-<STRING>\\\\                  => (string := "\\":: !string; continue());
+<STRING>\\\\                  => (string := #"\\":: !string; continue());
 <STRING>\\[\t\n ]+            => (continue());
+<STRING>[^\\\"]               => (string := String.sub(yytext,0):: !string; continue());
 <STRING>\\.                   => (ErrorMsg.error yypos ("illegal escape character " ^ yytext); continue());
-<STRING>[^\\\"]               => (string := yytext:: !string; continue());
-<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(List.foldl((op
-^))("")(!string), !stringPos, yypos + 1));
+<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(String.implode(rev(!string)), !stringPos, yypos + 1));
 
 <INITIAL>" " => (continue());
 <INITIAL>\$  => (continue());
