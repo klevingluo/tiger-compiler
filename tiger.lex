@@ -3,22 +3,42 @@ type lexresult = Tokens.token
 
 val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
-val commentDepth = ref 0
 
-val stringPos = ref 0
+val stringPos = ref (1, 1, 1)
 val string = ref [""]
 
+val commentPos = ref [(1, 1, 1)]
+
+val state = ref "initial"
+
+fun topLinePos() = let val (top :: _) = !linePos in top end
+fun posTuple(pos) = let val (topLinePos :: _ ) = !linePos in (pos, !lineNum, topLinePos) end
+
 fun err(p1,p2) = ErrorMsg.error p1
-fun eof() = let val pos = hd(!linePos) in Tokens.EOF(pos,pos) end
+fun eof() =
+    let
+        val pos = hd(!linePos)
+        val endState = !state
+        val (strPos, strLineNum, strLinePos) = !stringPos
+        val ((cmtPos, cmtLineNum, cmtLinePos) :: _) = !commentPos
+    in
+        (case endState of "string"  => ErrorMsg.error strPos ("unbalanced string " ^ Int.toString(strLineNum) ^ ":" ^ Int.toString(strPos - strLinePos))
+                        | "comment" => ErrorMsg.error cmtPos ("unbalanced comment " ^ Int.toString(cmtLineNum) ^ ":" ^ Int.toString(cmtPos - cmtLinePos))
+                        | _  => ());
+
+        Tokens.EOF(pos, pos)
+    end
+
+datatype CharList = Nil | Cons of char * CharList;
 
 val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
-fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
+
+fun indexOf(chars, c) = let val (x::xs) = chars in if x = c then 0 else 1 + indexOf(xs, c) end
 fun controlChar(esc) = String.str(Char.chr(indexOf(controlChars, String.sub(esc, 2))))
-fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc,1,3)))));
+fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc, 1, 3)))))
 
 %%
-%s COMMENT;
-%s STRING;
+%s STRING COMMENT;
 digit=[0-9];
 letter=[a-zA-Z];
 character=[a-zA-Z0-9_];
@@ -67,38 +87,37 @@ string=\"([^\\\"]|{escape})*\";
 <INITIAL>"["  => (Tokens.LBRACK(yypos, yypos + 1));
 <INITIAL>")"  => (Tokens.RPAREN(yypos, yypos + 1));
 <INITIAL>"("  => (Tokens.LPAREN(yypos, yypos + 1));
-<INITIAL>";"  => (Tokens.SEMICOLON(yypos,yypos + 1));
-<INITIAL>":"  => (Tokens.COLON(yypos,yypos + 1));
-<INITIAL>","  => (Tokens.COMMA(yypos,yypos + 1));
+<INITIAL>";"  => (Tokens.SEMICOLON(yypos, yypos + 1));
+<INITIAL>":"  => (Tokens.COLON(yypos, yypos + 1));
+<INITIAL>","  => (Tokens.COMMA(yypos, yypos + 1));
 
 <INITIAL>{digit}+             => (Tokens.INT(valOf(Int.fromString(yytext)), yypos, yypos + size(yytext)));
 <INITIAL>{letter}{character}* => (Tokens.ID(yytext, yypos, yypos + size(yytext)));
-<INITIAL>\"                   => (YYBEGIN STRING; stringPos := yypos; string=ref[""]; continue());
-<STRING>\\n                   => (string := "\n":: !string; continue());
-<STRING>\\t                   => (string := "\t":: !string; continue());
+<INITIAL>\"                   => (YYBEGIN STRING; state := "string"; stringPos := posTuple(yypos); string := [""]; continue());
+<STRING>\\n                   => (string := "\n" :: !string; continue());
+<STRING>\\t                   => (string := "\t" :: !string; continue());
 <STRING>\\\^{controlChar}     => (string := controlChar(yytext):: !string; continue());
 <STRING>\\{asciiNum}          => (string := asciiChar(yytext):: !string; continue());
-<STRING>\\\\                  => (string := "\\":: !string; continue());
+<STRING>\\\\                  => (string := "\\" :: !string; continue());
 <STRING>\\[\t\n ]+            => (continue());
 <STRING>\\.                   => (ErrorMsg.error yypos ("illegal escape character " ^ yytext); continue());
-<STRING>[^\\\"]               => (string := yytext:: !string; continue());
-<STRING>\"                    => (YYBEGIN INITIAL; Tokens.STRING(List.foldl((op
-^))("")(!string), !stringPos, yypos + 1));
+<STRING>[^\\\"]               => (string := yytext :: !string; continue());
+<STRING>\"                    => (YYBEGIN INITIAL; state := "initial"; Tokens.STRING(List.foldl((op ^))("")(!string), (let val pos = !stringPos in #1(pos) end), yypos + 1));
 
-<INITIAL>" " => (continue());
-<INITIAL>\$  => (continue());
-<INITIAL>\t  => (continue());
-<INITIAL>\b  => (continue());
+<INITIAL>" "       => (continue());
+<INITIAL>[\$\t\b]  => (continue());
 
 <INITIAL> . => (ErrorMsg.error yypos ("illegal character " ^ yytext); continue());
 
-<INITIAL>"/*" => (YYBEGIN COMMENT; commentDepth := !commentDepth + 1; continue());
-<COMMENT>"/*" => (commentDepth := !commentDepth + 1; continue());
-<COMMENT>"*/" => (commentDepth := !commentDepth - 1;
-                  (if !commentDepth = 0
-                   then YYBEGIN INITIAL
-                   else ());
-                  continue());
+<INITIAL>"/*" => (YYBEGIN COMMENT; state := "comment"; commentPos := posTuple(yypos) :: !commentPos ; continue());
+<COMMENT>"/*" => (commentPos := posTuple(yypos) :: !commentPos; continue());
 <COMMENT> .   => (continue());
+<COMMENT>"*/" => (let
+                     val (_ :: commentPos') = !commentPos
+                  in
+                     commentPos := commentPos';
+                     if (length commentPos') = 1 then (YYBEGIN INITIAL; state := "initial") else ();
+                     continue()
+                  end);
 
 \n   => (lineNum := !lineNum+1; linePos := yypos :: !linePos; continue());
