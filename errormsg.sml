@@ -37,7 +37,8 @@ struct
           look(!linePos,!lineNum);
           print ":";
           print msg;
-          print "\n"
+          print "\n";
+          raise Error
       end
 
   fun impossible msg =
