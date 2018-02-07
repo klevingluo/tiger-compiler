@@ -1,10 +1,10 @@
 Group is
 
-driver.sml
-errormsg.sml
-tokens.sig
-tokens.sml
 tiger.lex
+errormsg.sml
+parsetest.sml
+tiger.grm
 
 $/basis.cm
+$/ml-yacc-lib.cm
 $/smlnj-lib.cm

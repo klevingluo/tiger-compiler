@@ -1,5 +1,7 @@
+type svalue = Tokens.svalue
 type pos = int
-type lexresult = Tokens.token
+type ('a, 'b) token = ('a, 'b) Tokens.token
+type lexresult = (svalue,pos) token
 
 val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
@@ -33,13 +35,16 @@ datatype CharList = Nil | Cons of char * CharList;
 
 val controlChars = String.explode("ABCDEFGHIJKLMNOPQRSTUVWXYZ[/]^_")
 
-fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char)
+fun indexOf(x1::xs, char) = if x1 = char then 0 else 1 + indexOf(xs, char) 
   | indexOf([], char) = ~1
+
 fun controlChar(esc) = String.str(Char.chr(indexOf(controlChars, String.sub(esc, 2))))
+
 fun asciiChar(esc) = String.str(Char.chr(valOf(Int.fromString(String.substring(esc, 1, 3)))))
 
 %%
 %s STRING COMMENT;
+%header (functor TigerLexFun(structure Tokens: Tiger_TOKENS));
 digit=[0-9];
 letter=[a-zA-Z];
 character=[a-zA-Z0-9_];

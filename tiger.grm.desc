@@ -1,0 +1,136 @@
+
+state 0:
+
+	program : . decs 
+
+	VAR	shift 6
+
+	program	goto 12
+	decs	goto 5
+	dec	goto 4
+	tydec	goto 3
+	vardec	goto 2
+	fundec	goto 1
+
+	.	reduce by rule 2
+
+
+state 1:
+
+	dec : fundec .  (reduce by rule 5)
+
+
+
+	.	reduce by rule 5
+
+
+state 2:
+
+	dec : vardec .  (reduce by rule 4)
+
+
+
+	.	reduce by rule 4
+
+
+state 3:
+
+	dec : tydec .  (reduce by rule 3)
+
+
+
+	.	reduce by rule 3
+
+
+state 4:
+
+	decs : dec . decs 
+
+	VAR	shift 6
+
+	decs	goto 7
+	dec	goto 4
+	tydec	goto 3
+	vardec	goto 2
+	fundec	goto 1
+
+	.	reduce by rule 2
+
+
+state 5:
+
+	program : decs .  (reduce by rule 0)
+
+
+
+	.	reduce by rule 0
+
+
+state 6:
+
+	vardec : VAR . ID ASSIGN exp 
+
+	ID	shift 8
+
+
+	.	error
+
+
+state 7:
+
+	decs : dec decs .  (reduce by rule 1)
+
+
+
+	.	reduce by rule 1
+
+
+state 8:
+
+	vardec : VAR ID . ASSIGN exp 
+
+	ASSIGN	shift 9
+
+
+	.	error
+
+
+state 9:
+
+	vardec : VAR ID ASSIGN . exp 
+
+	INT	shift 11
+
+	exp	goto 10
+
+	.	error
+
+
+state 10:
+
+	vardec : VAR ID ASSIGN exp .  (reduce by rule 6)
+
+
+
+	.	reduce by rule 6
+
+
+state 11:
+
+	exp : INT .  (reduce by rule 7)
+
+
+
+	.	reduce by rule 7
+
+
+state 12:
+
+
+	EOF	accept
+
+
+	.	error
+
+5 of 19 action table entries left after compaction
+12 goto table entries

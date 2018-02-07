@@ -1,12 +1,1 @@
-/* This is legal.  The second function "g" simply hides the first one.
-   Because of the intervening variable declaration, the two "g" functions
-   are not in the same  batch of mutually recursive functions. 
-   See also test39 */
-let
-  function g(a:int):int = 12
-  type t = int
-  function g(a:int):int = - 00020
-  "wer\023 \^Z"
-in
-  0
-end
+var free := 3
