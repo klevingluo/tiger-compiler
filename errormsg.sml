@@ -29,19 +29,16 @@ struct
   exception Error
 
   fun error pos (msg:string) =
-      let fun look(a::rest,n) =
-		if a<pos then app print [":",
-				       Int.toString n,
-				       ".",
-				       Int.toString (pos-a)]
-		       else look(rest,n-1)
-	    | look _ = print "0.0"
-       in anyErrors := true;
-	  print (!fileName);
-	  look(!linePos,!lineNum);
-	  print ":";
-	  print msg;
-	  print "\n"
+      let fun look(a::rest, n) = print (Int.toString(n) ^ ":" ^ Int.toString(pos - a))
+            | look _ = print "0.0"
+      in
+          anyErrors := true;
+          print (!fileName);
+          look(!linePos,!lineNum);
+          print ":";
+          print msg;
+          print "\n";
+          raise Error
       end
 
   fun impossible msg =
