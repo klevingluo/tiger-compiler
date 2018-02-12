@@ -12,6 +12,8 @@
   | FUNCTION | VAR | TYPE 
 
 %nonterm  exp | program | decs | dec | tydec | vardec | fundec | ty | tyfields 
+              | lvalue | expseq | arithop | relop | boolop | recfields 
+              | explist | tylist | accessor
 
 %pos int
 %verbose
@@ -26,15 +28,31 @@
 
 %prefer THEN ELSE LPAREN
 
+%left ASSIGN
+%left LBRACK
+
+%nonassoc OF
+%nonassoc THEN
+%nonassoc ELSE
+
+%left AND OR
+
+%left EQ NEQ LT LE GT GE
+
+%left PLUS MINUS
+%left TIMES DIVIDE
+
+%nonassoc DO
+
 %value ID ("bogus")
 %value INT (1)
 %value STRING ("")
 
 %%
 
-program	: decs				()
+program	: exp				()
 
-decs : dec decs       ()
+decs : decs dec       ()
      |                ()
 
 dec : tydec           ()
@@ -42,7 +60,7 @@ dec : tydec           ()
     | fundec          ()
 
 vardec : VAR ID ASSIGN exp   ()
-       | VAR ID COLON ID ASSIGN exp
+       | VAR ID COLON ID ASSIGN exp ()
 
 tydec : TYPE ID EQ ty     ()
 
@@ -51,22 +69,66 @@ ty : ID  ()
    | ARRAY OF ID ()
 
 tyfields: ()
-        | ID COLON ID ()
+        | tylist ()
 
-fundec: FUNCTION ID LAPAREN tyfields RPAREN EQ exp ()
-      | FUNCTION ID LAPAREN tyfields RPAREN COLON ID EQ exp ()
+tylist : tylist COMMA ID COLON ID ()
+       | ID COLON ID ()
 
-lvalue: ID ()
-      | lvalue DOT ID ()
-      | lvalue RBRACK exp LBRACK ()
+fundec: FUNCTION ID LPAREN tyfields RPAREN EQ exp ()
+      | FUNCTION ID LPAREN tyfields RPAREN COLON ID EQ exp ()
 
-exp : INT  ()
-    | lvalue ()
+
+exp : lvalue ()
     | NIL ()
-    | LPAREN exps RPAREN
+    | LPAREN exp SEMICOLON expseq RPAREN ()
+    | LPAREN RPAREN ()
+    | INT  ()
     | STRING ()
-    | LPAREN RPAREN
-    | MINUS exp
+    | MINUS exp ()
+    | ID LPAREN RPAREN ()
+    | ID LPAREN explist RPAREN ()
+    | exp arithop exp %prec PLUS ()
+    | exp relop exp %prec EQ ()
+    | exp AND exp %prec AND ()
+    | exp OR exp %prec AND ()
+    | ID LBRACE recfields RBRACE ()
+    | ID LBRACE RBRACE ()
+    | ID LBRACK exp RBRACK OF exp ()
+    | lvalue ASSIGN exp ()
+    | IF exp THEN exp ()
+    | IF exp THEN exp ELSE exp ()
+    | WHILE exp DO exp ()
+    | FOR ID ASSIGN exp TO exp DO exp ()
+    | BREAK ()
+    | LET decs IN expseq END ()
+    | LPAREN exp RPAREN ()
 
+lvalue: ID accessor()
+
+accessor: DOT ID accessor ()
+        | LBRACK exp RBRACK  accessor()
+        | ()
+
+
+arithop : PLUS ()
+        | MINUS ()
+        | TIMES ()
+        | DIVIDE ()
+
+arithop : EQ ()
+        | NEQ ()
+        | LT ()
+        | LE ()
+        | GT ()
+        | GE ()
+
+recfields : recfields COMMA ID EQ exp ()
+          | ID EQ exp ()
+
+expseq : expseq SEMICOLON exp ()
+       | exp ()            
+
+explist : explist COMMA exp ()
+        | exp ()            
 
 (* a[i].f[j].x.y *)

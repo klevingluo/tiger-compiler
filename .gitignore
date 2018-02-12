@@ -5,3 +5,10 @@
 # no tmp build files
 .cm/
 **.lex.sml
+
+**.pdf
+**.aux
+**.log
+**.toc
+**.grm.sml
+**.grm.desc

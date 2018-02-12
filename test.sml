@@ -1,3 +1,3 @@
 CM.make("sources.cm");
-Parse.parse("test.tig");
+Parse.parse("testcases/test50.tig");
 OS.Process.exit(OS.Process.success);

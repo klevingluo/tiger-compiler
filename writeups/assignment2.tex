@@ -1,0 +1,58 @@
+\documentclass{notes}
+
+\title{Compilers Assignment 2}
+\author{Kevin Luo \& Brian Roels}
+\usepackage{amsmath} % math
+\usepackage{graphicx} % graphics
+\usepackage{algorithm} % pseodocode
+\usepackage{amsfonts} % fonts
+\usepackage{amsthm} % theorem formatting
+\usepackage[noend]{algpseudocode} % theorem formatting
+
+\begin{document}
+  \pagenumbering{gobble}
+  \maketitle
+  \newpage
+  \tableofcontents
+  \newpage
+  \pagenumbering{arabic}
+
+\section{notes}
+Since LR parsers use constant stack when recursion in rules is left,
+we do that whenever possible, like the arguments to a function, a
+sequence of expressions, the fields of a record, etc
+
+some shift-reduce conflicts we resovled and how:
+multiplication and division bind tighter than addition and
+subtraction. All all left-associative, although this only matters for
+subtraction and division.
+
+Relative operators, <, > and the like ,bind tighter than boolean
+operators, but not as tightly as arith ops
+
+assignment binds loosest than all of the above.
+
+DO binds tighter than operators, since a while loop's body does not
+produce a value, although it seems that calling an operator an this
+value will cause problems during typechecking anyway
+
+operators bind more tightly than then's , since we assume that we want
+to return the sum if the atatement is true.  This one is not so cut
+and dry ,b ut we think this is the right decision.
+
+we resolve the if then elses to the innermost statement by making then
+of higher precedence then else
+
+when creating an array, we make operators of higher precedence on the
+chain, so that the calculated value is put into the array.
+
+we prioritize id over lbrack, meaning we choose not to reduce to an
+lvalue
+
+we use the precedence rules for each operator when reducing
+expressions with operators.
+
+we have separate cases for the empty record type and value, which is
+different from the empt record type value
+
+\end{document}
