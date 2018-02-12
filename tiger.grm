@@ -1,3 +1,4 @@
+structure A = Absyn;
 %%
 %term
     EOF 
@@ -11,9 +12,23 @@
   | BREAK | NIL
   | FUNCTION | VAR | TYPE 
 
-%nonterm  exp | program | decs | dec | tydec | vardec | fundec | ty | tyfields 
-              | lvalue | expseq | arithop | relop | boolop | recfields 
-              | explist | tylist | accessor
+%nonterm  program of A.exp
+        | exp of A.exp
+        | decs 
+        | dec 
+        | tydec 
+        | vardec 
+        | fundec 
+        | ty 
+        | tyfields 
+        | lvalue 
+        | expseq of A.exp list
+        | arithop of A.oper
+        | relop of A.oper
+        | recfields 
+        | explist of A.exp list
+        | tylist 
+        | accessor
 
 %pos int
 %verbose
@@ -30,18 +45,13 @@
 
 %left ASSIGN
 %left LBRACK
-
 %nonassoc OF
 %nonassoc THEN
 %nonassoc ELSE
-
 %left AND OR
-
 %left EQ NEQ LT LE GT GE
-
 %left PLUS MINUS
 %left TIMES DIVIDE
-
 %nonassoc DO
 
 %value ID ("bogus")
@@ -78,57 +88,93 @@ fundec: FUNCTION ID LPAREN tyfields RPAREN EQ exp ()
       | FUNCTION ID LPAREN tyfields RPAREN COLON ID EQ exp ()
 
 
-exp : lvalue ()
-    | NIL ()
-    | LPAREN exp SEMICOLON expseq RPAREN ()
-    | LPAREN RPAREN ()
-    | INT  ()
-    | STRING ()
-    | MINUS exp ()
-    | ID LPAREN RPAREN ()
-    | ID LPAREN explist RPAREN ()
-    | exp arithop exp %prec PLUS ()
-    | exp relop exp %prec EQ ()
-    | exp AND exp %prec AND ()
-    | exp OR exp %prec AND ()
-    | ID LBRACE recfields RBRACE ()
-    | ID LBRACE RBRACE ()
-    | ID LBRACK exp RBRACK OF exp ()
-    | lvalue ASSIGN exp ()
-    | IF exp THEN exp ()
-    | IF exp THEN exp ELSE exp ()
-    | WHILE exp DO exp ()
-    | FOR ID ASSIGN exp TO exp DO exp ()
-    | BREAK ()
-    | LET decs IN expseq END ()
-    | LPAREN exp RPAREN ()
+exp : lvalue                             (A.VarExp(lvalue))
+    | NIL                                (A.NilExp)
+    | LPAREN exp SEMICOLON expseq RPAREN (A.SeqExp((exp, expleft)::expseq))
+    | LPAREN RPAREN                      (A.SeqExp([]))
+    | INT                                (A.IntExp(INT))
+    | STRING                             (A.StringExp(STRING, STRINGleft))
+    | MINUS exp                          (A.OpExp({left=A.IntExp(0),
+                                                   oper=A.MinusOp,
+                                                   right=exp,
+                                                   pos=MINUSleft}))
 
-lvalue: ID accessor()
+    | ID LPAREN RPAREN                   (A.CallExp({func=Symbol.symbol(ID),
+                                                    args=[],
+                                                    pos=IDleft}))
 
-accessor: DOT ID accessor ()
+    | ID LPAREN explist RPAREN           (A.CallExp({func=Symbol.symbol(ID),
+                                                    args=explist,
+                                                    pos=IDleft}))
+
+    | exp arithop exp %prec PLUS         (A.OpExp({left=exp1,
+                                                   oper=arithop,
+                                                   right=exp2,
+                                                   pos=exp1left}))
+    | exp relop exp %prec EQ             (A.OpExp({left=exp1,
+                                                   oper=relop,
+                                                   right=exp2,
+                                                   pos=exp1left}))
+
+    | exp AND exp %prec AND              (A.IfExp({test=exp1,
+                                                   then'=exp2,
+                                                   else'=SOME(A.IntExp(0)),
+                                                   pos=exp1left }))
+    | exp OR exp %prec AND               (A.IfExp({test=exp1,
+                                                   then'=A.IntExp(0),
+                                                   else'=SOME(exp2),
+                                                   pos=exp1left}))
+    | ID LBRACE recfields RBRACE         (A.IntExp(3))
+    | ID LBRACE RBRACE                   (A.IntExp(3)) 
+    | ID LBRACK exp RBRACK OF exp        (A.IntExp(3))
+    | lvalue ASSIGN exp                  (A.AssignExp({var=lvalue,
+                                                       exp=exp,
+                                                       pos=lvalueleft}))
+    | IF exp THEN exp                    (A.IntExp(3))
+    | IF exp THEN exp ELSE exp           (A.IntExp(3))
+    | WHILE exp DO exp                   (A.WhileExp({test=exp1,
+                                                      body=exp2,
+                                                      pos=WHILEleft}))
+    | FOR ID ASSIGN exp TO exp DO exp    (A.ForExp({var=Symbol.symbol(ID),
+                                                    escape=ref false,
+                                                    lo=exp1,
+                                                    hi=exp2,
+                                                    body=exp3,
+                                                    pos=FORleft}))
+
+    | BREAK                              (A.BreakExp(BREAKleft))
+    | LET decs IN expseq END             (A.IntExp(3))
+    | LPAREN exp RPAREN                  (exp)
+
+lvalue: ID ()
+      | lvalue DOT ID ()
+      | lvalue LBRACK exp RBRACK ()
+
+accessor: DOT ID accessor            (A.FieldVar(
+                                                 d))
         | LBRACK exp RBRACK  accessor()
         | ()
 
 
-arithop : PLUS ()
-        | MINUS ()
-        | TIMES ()
-        | DIVIDE ()
+arithop : PLUS   (A.PlusOp)
+        | MINUS  (A.MinusOp)
+        | TIMES  (A.TimesOp)
+        | DIVIDE (A.DivideOp)
 
-arithop : EQ ()
-        | NEQ ()
-        | LT ()
-        | LE ()
-        | GT ()
-        | GE ()
+relop : EQ  (A.EqOp)
+      | NEQ (A.NeqOp)
+      | LT  (A.LtOp)
+      | LE  (A.LeOp)
+      | GT  (A.GtOp)
+      | GE  (A.GeOp)
 
 recfields : recfields COMMA ID EQ exp ()
           | ID EQ exp ()
 
-expseq : expseq SEMICOLON exp ()
-       | exp ()            
+expseq : expseq SEMICOLON exp (exp::expseq)
+       | exp                  ([exp])            
 
-explist : explist COMMA exp ()
-        | exp ()            
+explist : explist COMMA exp   (exp::explist)
+        | exp                 ([exp])            
 
 (* a[i].f[j].x.y *)
