@@ -25,12 +25,11 @@ structure A = Absyn;
         | expseq of (A.exp * int) list
         | arithop of A.oper
         | relop of A.oper
-        | recfields 
+        | recfields of (Symbol.symbol * A.exp * int) list
         | explist of A.exp list
-        | tylist 
         | tydeclist of {name:Symbol.symbol, ty:A.ty, pos:int} list
         | fundeclist of A.fundec list
-        | accessor of Symbol.symbol * int -> A.var
+        | accessor of A.var-> A.var
 
 %pos int
 %verbose
@@ -56,9 +55,9 @@ structure A = Absyn;
 %left TIMES DIVIDE
 %nonassoc IN
 
-%nonassoc TYPE
 %left DECS
-%left FUNCTION
+%nonassoc TYPE
+%nonassoc FUNCTION
 %nonassoc DO
 
 %value ID ("bogus")
@@ -78,10 +77,10 @@ dec : tydeclist %prec DECS  (A.TypeDec(tydeclist))
 
 fundeclist: fundeclist FUNCTION ID LPAREN tyfields RPAREN EQ exp %prec DECS
         ({name=Symbol.symbol(ID1),
-		      params= tyfields,
-		      result= NONE,
-		      body= exp,
-		      pos= FUNCTIONleft}::fundeclist)
+          params= tyfields,
+          result= NONE,
+          body= exp,
+          pos= FUNCTIONleft}::fundeclist)
       | fundeclist FUNCTION ID LPAREN tyfields RPAREN COLON ID EQ exp  %prec DECS
         ({name=Symbol.symbol(ID1),
             params=tyfields,
@@ -141,7 +140,7 @@ tyfields':                             ([])
 exp : lvalue                             (A.VarExp(lvalue))
     | NIL                                (A.NilExp)
     | LPAREN exp SEMICOLON exp expseq RPAREN 
-             (A.SeqExp((exp1, exp1left)::((exp2, exp2left)::expseq)))
+             (A.SeqExp((exp1, exp1left)::((exp2, exp2left)::rev(expseq))))
     | LPAREN RPAREN                      (A.SeqExp([]))
     | INT                                (A.IntExp(INT))
     | STRING                             (A.StringExp(STRING, STRINGleft))
@@ -175,9 +174,16 @@ exp : lvalue                             (A.VarExp(lvalue))
                                                    then'=A.IntExp(0),
                                                    else'=SOME(exp2),
                                                    pos=exp1left}))
-    | ID LBRACE recfields RBRACE         (A.IntExp(3))
-    | ID LBRACE RBRACE                   (A.IntExp(3)) 
-    | ID LBRACK exp RBRACK OF exp        (A.IntExp(3))
+    | ID LBRACE recfields RBRACE         (A.RecordExp({fields= recfields,
+                                                       typ=Symbol.symbol(ID),
+                                                       pos=IDleft}))
+    | ID LBRACE RBRACE                   (A.RecordExp({fields=[],
+                                                       typ=Symbol.symbol(ID),
+                                                       pos=IDleft})) 
+    | ID LBRACK exp RBRACK OF exp        (A.ArrayExp({typ=Symbol.symbol(ID),
+                                                      size=exp1,
+                                                      init=exp2,
+                                                      pos=IDleft}))
     | lvalue ASSIGN exp                  (A.AssignExp({var=lvalue,
                                                        exp=exp,
                                                        pos=lvalueleft}))
@@ -205,22 +211,23 @@ exp : lvalue                             (A.VarExp(lvalue))
     | BREAK                              (A.BreakExp(BREAKleft))
     | LET decs IN END                    (A.SeqExp([]))
     | LET decs IN exp expseq END         (A.LetExp({decs=decs,
-                                                    body=A.SeqExp((exp, expleft) :: expseq),
+                                                    body=A.SeqExp((exp, expleft)
+                                                    :: rev(expseq)),
                                                     pos=LETleft}))
     | LPAREN exp RPAREN                  (exp)
 
-lvalue: ID accessor (accessor(Symbol.symbol(ID), IDleft))
+lvalue: ID accessor (accessor(A.SimpleVar(Symbol.symbol(ID), IDleft)))
 
-accessor: DOT ID accessor             (fn (var,pos)=> A.FieldVar(
-                                                            accessor(var,pos), 
+accessor: DOT ID accessor             (fn (var)=> accessor(A.FieldVar(
+                                                            var, 
                                                             Symbol.symbol(ID), 
-                                                            DOTleft))
+                                                            DOTleft)))
 
-        | LBRACK exp RBRACK  accessor (fn (var,pos) => (A.SubscriptVar(
-                                                                accessor(var,pos),
+        | LBRACK exp RBRACK  accessor (fn (var) => accessor(A.SubscriptVar(
+                                                                var,
                                                                 exp, 
                                                                 LBRACKleft)))
-        |                             (fn (var,pos) => A.SimpleVar(var, pos))
+        |                             (fn (var) => var)
 
 
 arithop : PLUS   (A.PlusOp)
@@ -235,13 +242,12 @@ relop : EQ  (A.EqOp)
       | GT  (A.GtOp)
       | GE  (A.GeOp)
 
-recfields : recfields COMMA ID EQ exp ()
-          | ID EQ exp ()
+recfields : recfields COMMA ID EQ exp ((Symbol.symbol(ID), exp, IDleft)::recfields)
+          | ID EQ exp ([(Symbol.symbol(ID), exp, IDleft)])
 
 expseq : expseq SEMICOLON exp ((exp, expleft)::expseq)
-       |                      ([])            
+       |                      ([])
 
 explist : explist COMMA exp   (exp::explist)
-        | exp                 ([exp])            
+        | exp                 ([exp])
 
-(* a[i].f[j].x.y *)
