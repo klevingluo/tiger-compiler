@@ -53,12 +53,11 @@ structure A = Absyn;
 %left EQ NEQ LT LE GT GE
 %left PLUS MINUS
 %left TIMES DIVIDE
-%nonassoc IN
+%nonassoc DO
 
 %left DECS
 %nonassoc TYPE
 %nonassoc FUNCTION
-%nonassoc DO
 
 %value ID ("bogus")
 %value INT (1)
