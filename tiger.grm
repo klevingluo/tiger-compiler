@@ -19,6 +19,7 @@ structure A = Absyn;
         | dec of A.dec
         | vardec of A.dec
         | ty of A.ty
+        | maybety of (Symbol.symbol * int) option
         | tyfields of A.field list
         | tyfields' of A.field list
         | lvalue of A.var
@@ -44,8 +45,7 @@ structure A = Absyn;
 
 %prefer THEN ELSE LPAREN
 
-%left ASSIGN
-%left LBRACK
+%nonassoc ASSIGN
 %nonassoc OF
 %nonassoc THEN
 %nonassoc ELSE
@@ -66,7 +66,7 @@ structure A = Absyn;
 
 %%
 
-program	: exp				  (exp)
+program	: exp (exp)
 
 decs : decs dec %prec DECS (dec::decs)
      |                     ([])
@@ -75,40 +75,23 @@ dec : tydeclist %prec DECS  (A.TypeDec(tydeclist))
     | vardec                (vardec)
     | fundeclist %prec DECS (A.FunctionDec(fundeclist))
 
-fundeclist: fundeclist FUNCTION ID LPAREN tyfields RPAREN EQ exp %prec DECS
-        ({name=Symbol.symbol(ID1),
-          params= tyfields,
-          result= NONE,
-          body= exp,
-          pos= FUNCTIONleft}::fundeclist)
-      | fundeclist FUNCTION ID LPAREN tyfields RPAREN COLON ID EQ exp  %prec DECS
-        ({name=Symbol.symbol(ID1),
-            params=tyfields,
-            result=(SOME(Symbol.symbol(ID2), ID2left)),
-            body=exp,
-            pos=FUNCTIONleft}::fundeclist)
-      | FUNCTION ID LPAREN tyfields RPAREN EQ exp %prec DECS
-        ({name=Symbol.symbol(ID1),
-		      params= tyfields,
-		      result= NONE,
-		      body= exp,
-		      pos= FUNCTIONleft}::[])
-      | FUNCTION ID LPAREN tyfields RPAREN COLON ID EQ exp  %prec DECS
-        ({name=Symbol.symbol(ID1),
-            params=tyfields,
-            result=(SOME(Symbol.symbol(ID2), ID2left)),
-            body=exp,
-            pos=FUNCTIONleft}::[])
+fundeclist: fundeclist FUNCTION ID LPAREN tyfields RPAREN maybety EQ exp  
+              ({name=Symbol.symbol(ID1),
+                params=tyfields,
+                result=maybety,
+                body=exp,
+                pos=FUNCTIONleft}::fundeclist)
+          | FUNCTION ID LPAREN tyfields RPAREN maybety EQ exp  
+              ({name=Symbol.symbol(ID1),
+                params=tyfields,
+                result=maybety,
+                body=exp,
+                pos=FUNCTIONleft}::[])
 
-vardec : VAR ID ASSIGN exp          (A.VarDec({name=Symbol.symbol(ID),
-                                               escape= ref false,
-                                               typ=NONE, 
-                                               init=exp,
-                                               pos=VARleft}))
 
-       | VAR ID COLON ID ASSIGN exp (A.VarDec({name=Symbol.symbol(ID1),
+vardec : VAR ID maybety ASSIGN exp (A.VarDec({name=Symbol.symbol(ID1),
                                                escape= ref false,
-                                               typ=SOME((Symbol.symbol(ID2), ID2left)), 
+                                               typ=maybety,
                                                init=exp,
                                                pos=VARleft}))
 
@@ -136,6 +119,8 @@ tyfields':                             ([])
                                          typ=Symbol.symbol(ID2),
                                          pos=ID1left}::tyfields')
 
+maybety : COLON ID (SOME((Symbol.symbol(ID), IDleft)))
+        |          (NONE)
 
 exp : lvalue                             (A.VarExp(lvalue))
     | NIL                                (A.NilExp)
@@ -218,17 +203,11 @@ exp : lvalue                             (A.VarExp(lvalue))
 
 lvalue: ID accessor (accessor(A.SimpleVar(Symbol.symbol(ID), IDleft)))
 
-accessor: DOT ID accessor             (fn (var)=> accessor(A.FieldVar(
-                                                            var, 
-                                                            Symbol.symbol(ID), 
-                                                            DOTleft)))
-
-        | LBRACK exp RBRACK  accessor (fn (var) => accessor(A.SubscriptVar(
-                                                                var,
-                                                                exp, 
-                                                                LBRACKleft)))
-        |                             (fn (var) => var)
-
+accessor: DOT ID accessor
+            (fn (var)=> accessor(A.FieldVar(var, Symbol.symbol(ID), DOTleft)))
+        | LBRACK exp RBRACK  accessor 
+            (fn (var) => accessor(A.SubscriptVar(var, exp, LBRACKleft)))
+        |   (fn (var) => var)
 
 arithop : PLUS   (A.PlusOp)
         | MINUS  (A.MinusOp)
@@ -243,7 +222,7 @@ relop : EQ  (A.EqOp)
       | GE  (A.GeOp)
 
 recfields : recfields COMMA ID EQ exp ((Symbol.symbol(ID), exp, IDleft)::recfields)
-          | ID EQ exp ([(Symbol.symbol(ID), exp, IDleft)])
+          | ID EQ exp                 ([(Symbol.symbol(ID), exp, IDleft)])
 
 expseq : expseq SEMICOLON exp ((exp, expleft)::expseq)
        |                      ([])
