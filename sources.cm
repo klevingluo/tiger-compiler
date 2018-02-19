@@ -15,3 +15,7 @@ prabsyn.sml
 tiger.lex
 tiger.grm
 
+types.sml
+env.sml
+translate.sml
+semant.sml
