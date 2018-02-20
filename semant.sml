@@ -14,8 +14,8 @@ end
 structure Semant : SEMANT =
 struct
 
-  type venv = Env.enventry IntMapTable.table
-  type tenv = Types.ty IntMapTable
+  type venv = Env.enventry Symbol.table
+  type tenv = Types.ty Symbol.table
   type expty = {exp: Translate.exp, ty: Types.ty}
 
   fun transProg(exp : Absyn.exp) = ()
