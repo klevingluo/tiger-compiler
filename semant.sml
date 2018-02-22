@@ -86,6 +86,16 @@ fun actual_ty(ty : T.ty, pos : int) =
                    T.NIL))
       | _ => ty
 
+fun detect_loop(newSym : Symbol.symbol, ty : T.ty, pos : int) =
+    case ty
+     of T.NAME(sym, tyref) =>
+        if newSym = sym
+        then ErrorMsg.error pos ("loop detected dec of " ^ S.name newSym)
+        else (case (!tyref)
+               of SOME(ty) => detect_loop(newSym, ty, pos)
+                | _ => ())
+      | _ => ()
+
 fun transExp(exp : A.exp, env) =
 
   (*todo: fix these 2 transformations*)
@@ -190,9 +200,12 @@ fun transExp(exp : A.exp, env) =
                     end
                   | writeFunDecs([], _) = ()
             fun writeTyDecs({name, ty, pos}::tydecs, env) =
-                    (E.setTy(name, absynty2ty(ty), env);
+                let val resolvTy = absynty2ty(ty)
+                in detect_loop(name, resolvTy, pos);
+                   (E.setTy(name, absynty2ty(ty), env);
                     writeTyDecs(tydecs, env))
-                  | writeTyDecs([], _) = ()
+                end
+              | writeTyDecs([], _) = ()
         in
           (case dec
             of A.FunctionDec(decs) => writeFunDecs(decs, env)
