@@ -4,7 +4,7 @@ sig
     type expty
 
     val transProg : Absyn.exp -> unit
-    val transExp: Absyn.exp -> expty
+    val transExp: Absyn.exp * env -> expty
 end
 
 structure Semant : SEMANT =
@@ -42,13 +42,13 @@ fun type2string(T.RECORD(fields, unique)) =
 
 fun isSubType(T.NIL, T.RECORD(fields, unique)) = true
   | isSubType(T.BOTTOM, _) = true
-  | isSubType(_, _) = false
+  | isSubType(x,y) = x = y
 
 fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
   if isSubType(ty, expect) 
   then () 
-  else ErrorMsg.error pos ("expected type:" ^ type2string(expect) ^ 
-    "got type:" ^ type2string(ty))
+  else ErrorMsg.error pos ("expected type: " ^ type2string(expect) ^ 
+    " got type: " ^ type2string(ty))
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
     if param = ty
@@ -87,13 +87,15 @@ fun actual_ty(ty : T.ty, pos : int) =
       | _ => ty
 
 
-fun transExp(exp : A.exp) =
-  let fun makeTy(A.NameTy(sym, pos)) = T.NIL
-    | makeTy(A.RecordTy(fields)) = T.NIL
-    | makeTy(A.ArrayTy(sym, pos)) = 
-      case E.lookupTy(sym, env)
-        of SOME(ty) => T.ARRAY(ty, ref ())
-         | NONE => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
+fun transExp(exp : A.exp, env) =
+
+  (*todo: fix these 2 transformations*)
+  let fun absynty2ty(A.NameTy(sym, pos)) = T.NIL
+        | absynty2ty(A.RecordTy(fields)) = T.NIL
+        | absynty2ty(A.ArrayTy(sym, pos)) = 
+          case E.lookupTy(sym, env)
+            of SOME(ty) => T.ARRAY(ty, ref ())
+             | NONE => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
                     (T.ARRAY(T.BOTTOM, ref ())))
   and trexp (A.OpExp{left, oper= oper, right, pos}):expty =
             (assertType(trexp left, pos, T.INT);
@@ -146,14 +148,14 @@ fun transExp(exp : A.exp) =
              assertType(trexp lo, pos, T.UNIT);
              E.openScope(env);
              E.setTy(var, T.INT, env);
-             transExp(body);
+             transExp(body, env);
              E.closeScope(env);
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
             (E.openScope(env);
-             writeDecs(decs);
-             transExp(body);
+             writeDecs(rev(decs), env);
+             transExp(body, env);
              E.closeScope(env);
              {exp= (), ty= T.BOTTOM})
           | trexp (A.ArrayExp{typ, size, init, pos}) =
@@ -162,36 +164,48 @@ fun transExp(exp : A.exp) =
                of SOME(T.ARRAY(ty, unique)) =>
                   (assertType(trexp init, pos, actual_ty(ty,pos));
                    {exp= (), ty= T.ARRAY(ty, unique)})
-                | _ => (ErrorMsg.error pos ("undefined array type " ^ S.name typ);
-                        {exp= (), ty= T.BOTTOM})))
-        and  writeDecs(dec::decs) =
-        let fun findTy(sym, pos) =
+                | SOME(_) => (ErrorMsg.error pos ("not type array:" ^ S.name typ); {exp= (), ty= T.BOTTOM})
+                | _ => (ErrorMsg.error pos ("undefined type " ^ S.name typ); {exp= (), ty= T.BOTTOM})))
+        and  writeDecs(dec::restdecs, env) =
+        let fun findTy(sym, pos, env) =
                 case E.lookupTy(sym, env)
                  of SOME(ty) => ty
-                  | _ => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
-                          T.BOTTOM)
-            fun writeFunDecs({name, params, result, body, pos}::fundecs) =
+                  | _ => (ErrorMsg.error pos ("undefined type " ^ S.name sym); T.BOTTOM)
+            fun writeFunDecs({name, params, result, body, pos}::fundecs, env) =
                     let  val resultTy =
                              case result
-                              of SOME((sym, pos)) => findTy(sym, pos)
+                              of SOME((sym, pos)) => findTy(sym, pos, env)
                                | _ => T.UNIT
-                         val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos))(params)
-                    in if getTy(transExp(body)) <> resultTy
+                         val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos, env))(params)
+                    in if getTy(transExp(body, env)) <> resultTy
                        then ErrorMsg.error pos "function signature mismatch"
                        else E.setVar(name, E.FunEntry{formals= paramTys, result= resultTy}, env)
                     end
-                  | writeFunDecs([]) = ()
-            fun writeTyDecs({name, ty, pos}::tydecs) =
-                    (E.setTy(name, makeTy(ty), env); writeTyDecs(tydecs))
-                  | writeTyDecs([]) = ()
-        in case dec
-            of A.FunctionDec(decs) => writeFunDecs(decs)
+                  | writeFunDecs([], _) = ()
+            fun writeTyDecs({name, ty, pos}::tydecs, env) =
+                    (E.setTy(name, absynty2ty(ty), env);
+                    writeTyDecs(tydecs, env))
+                  | writeTyDecs([], _) = ()
+        in 
+          (case dec
+            of A.FunctionDec(decs) => writeFunDecs(decs, env)
              | A.VarDec{name, escape, typ, init, pos} =>
-                 (*TODO: should this be the type of the init or the type declared? *)
-               E.setVar(name, E.VarEntry{ty=getTy(trexp init)}, env)
-             | A.TypeDec(decs) => writeTyDecs(decs)
+                 (case typ
+                   (* the type is declared, so we assign it and check*)
+                   of SOME((sym, pos)) => 
+                       let val ty = E.lookupTy(sym, env)
+                       in
+                       case ty
+                         of SOME(ty) => (assertType(trexp(init), pos, ty);
+                                         E.setVar(name, E.VarEntry{ty=ty}, env))
+                            | _ => ErrorMsg.error pos ("undefined type " ^ S.name sym)
+                        end
+                    (* no type is declared, we infer based on the value *)
+                    | _ => E.setVar(name, E.VarEntry{ty=getTy(transExp(init, env))}, env))
+             | A.TypeDec(decs) => (writeTyDecs(decs, env));
+             writeDecs(restdecs, env))
         end
-      | writeDecs([]) = ()
+      | writeDecs([], _) = ()
         and trvar (A.SimpleVar(id, pos)) =
             (case E.lookupVar(id, env)
               of SOME(E.VarEntry{ty}) => {exp= (), ty= actual_ty(ty, pos)}
@@ -226,7 +240,7 @@ fun transExp(exp : A.exp) =
 fun transProg(exp : A.exp) =
     let val env = Env.base_env
     in
-        (transExp(exp);
+        (transExp(exp, env);
          ())
     end
 
