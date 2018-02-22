@@ -1,29 +1,22 @@
 signature SEMANT =
 sig
-    type venv
-    type tenv
+    type env
     type expty
 
     val transProg : Absyn.exp -> unit
-    val transVar: venv * tenv * Absyn.var -> expty
-    val transExp: venv * tenv * Absyn.exp -> expty
-    val transDec: venv * tenv * Absyn.dec -> {venv: venv, tenv: tenv}
-    val transTy:         tenv * Absyn.ty  -> Types.ty
+    val transExp: env * Absyn.exp -> expty
 end
 
 structure Semant : SEMANT =
 struct
 
-type venv = Env.enventry Symbol.table
-type tenv = Types.ty Symbol.table
+type env = Env.env
 type expty = {exp: Translate.exp, ty: Types.ty}
 
 structure S = Symbol
 structure A = Absyn
 structure E = Env
 structure T = Types
-
-fun transVar(venv : venv, tenv : tenv, var : A.var) = {exp= (), ty= T.UNIT}
 
 fun getTy({exp, ty} : expty) = ty
 
@@ -46,9 +39,10 @@ fun type2string(T.RECORD(fields, unique)) =
          | NONE => "unknown"
 
 fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
-    case ty of expect => ()
-            |  _ => ErrorMsg.error pos ("expected type:" ^ type2string(expect) ^ 
-            "got type:" ^ type2string(ty))
+    case ty 
+      of expect => ()
+       (*| _ => ErrorMsg.error pos ("expected type:" ^ type2string(expect) ^ 
+         "got type:" ^ type2string(ty))*)
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
     if param = ty
@@ -86,9 +80,9 @@ fun actual_ty(ty : T.ty, pos : int) =
                    T.NIL))
       | _ => ty
 
-fun extendEnvs(decs : A.dec list, venv : venv, tenv : tenv) = (venv, tenv)
+fun extendEnvs(decs : A.dec list, env) = ()
 
-fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
+fun transExp(env: env, exp : A.exp) =
     let fun trexp (A.OpExp{left, oper= oper, right, pos}):expty =
             (assertType(trexp left, pos, T.INT);
              assertType(trexp right, pos, T.INT);
@@ -98,7 +92,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
           | trexp (A.IntExp(int)) = {exp= (), ty= T.INT}
           | trexp (A.StringExp(str, pos)) = {exp= (), ty= T.STRING}
           | trexp (A.CallExp{func, args, pos}) =
-            let val fundec = S.look(venv, func)
+            let val fundec = Env.lookupVar(func, env)
             in (case fundec
                  of SOME(E.FunEntry{formals, result}) =>
                     (checkArgs(formals, map(trexp)(args), pos);
@@ -107,7 +101,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                           {exp= (), ty= T.BOTTOM}))
             end
           | trexp (A.RecordExp{fields = args, typ = typ, pos = pos}) =
-            let val recdec = S.look(tenv, typ)
+            let val recdec = E.lookupTy(typ, env)
                 fun trfield (sym, exp, pos) = (sym, getTy(trexp(exp)), pos)
             in (case recdec
                  of SOME(T.RECORD(params, unique)) =>
@@ -139,7 +133,9 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             (assertType(trexp hi, pos, T.INT);
              assertType(trexp lo, pos, T.UNIT);
-             transExp(S.enter(venv, var, Env.VarEntry({ty= T.INT})), tenv, body);
+             Env.openScope(env);
+             Env.setTy(var, T.INT, env);
+             transExp(env, body);
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
@@ -148,7 +144,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
             end
           | trexp (A.ArrayExp{typ, size, init, pos}) =
             (assertType(trexp size, pos, T.INT);
-             (case S.look(tenv, typ)
+             (case E.lookupTy(typ, env)
                of SOME(T.ARRAY(ty, unique)) =>
                   (assertType(trexp init, pos, actual_ty(ty,pos));
                    {exp= (), ty= T.ARRAY(ty, unique)})
@@ -156,7 +152,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                         {exp= (), ty= T.BOTTOM})))
 
         and trvar (A.SimpleVar(id, pos)) =
-            (case S.look(venv, id)
+            (case Env.lookupVar(id, env)
               of SOME(E.VarEntry{ty}) => {exp= (), ty= actual_ty(ty, pos)}
                | _ => (ErrorMsg.error pos ("undefined variable " ^ S.name id);
                        {exp= (), ty= T.BOTTOM}))
@@ -186,15 +182,10 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
     in trexp(exp)
     end
 
-fun transDec(venv : venv, tenv : tenv, dec : A.dec) = {venv= venv, tenv= tenv}
-
-fun transTy(tenv : tenv, ty : A.ty) = T.UNIT
-
 fun transProg(exp : A.exp) =
-    let val tenv = Env.base_tenv
-        val venv = Env.base_venv
+    let val env = Env.base_env
     in
-        (transExp(venv, tenv, exp);
+        (transExp(env, exp);
          ())
     end
 
