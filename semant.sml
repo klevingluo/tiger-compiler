@@ -100,7 +100,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                           {exp= (), ty= T.BOTTOM}))
             end
           | trexp (A.SeqExp(exps)) =
-            let fun buildSeqExp(exp : A.exp, {exp, ty} : expty) = trexp(exp)
+            let fun buildSeqExp((exp, pos) : (A.exp * int), expty : expty) = trexp(exp)
             in foldl(buildSeqExp)({exp= (), ty= T.BOTTOM})(exps)
             end
           | trexp (A.AssignExp{var, exp, pos}) =
@@ -110,39 +110,46 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                   {exp= (), ty= T.BOTTOM})
           | trexp (A.IfExp{test, then', else', pos}) =
             ((if getTy(trexp(test)) <> T.INT
-              then ErrorMsg.error pos "test case must be of type bool/int");
+              then ErrorMsg.error pos "test case must be of type bool/int"
+              else ());
              (case else'
                of SOME(exp) =>
-                  (if getTy(trexp(then')) <> getTy(trexp(else'))
-                   then ErrorMsg.error pos "branches of if/else must be of equal type")
+                  if getTy(trexp(then')) <> getTy(trexp(exp))
+                  then ErrorMsg.error pos "branches of if/else must be of equal type"
+                  else ()
                 | NONE => ());
              trexp(then'))
           | trexp (A.WhileExp{test, body, pos}) =
             ((if getTy(trexp(test)) <> T.INT
-              then ErrorMsg.error pos "test case must be of type bool/int");
+              then ErrorMsg.error pos "test case must be of type bool/int"
+              else ());
              (if getTy(trexp(body)) <> T.UNIT
-              then ErrorMsg.error pos "body must be of type unit");
+              then ErrorMsg.error pos "body must be of type unit"
+              else ());
              {exp= (), ty= T.UNIT})
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             ((if getTy(trexp(lo)) <> T.INT orelse getTy(trexp(hi)) <> T.INT
-              then ErrorMsg.error pos "low and hi bounds of for expressions must be of type int");
-             transExp(S.enter(venv, var, VarEntry{ty= T.INT}), tenv, body);
+              then ErrorMsg.error pos "low and hi bounds of for expressions must be of type int"
+              else ());
+             transExp(S.enter(venv, var, Env.VarEntry({ty= T.INT})), tenv, body);
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
-            let var envs = extendEnvs(decs, venv, tenv)
+            let val envs = extendEnvs(decs, venv, tenv)
             in transExp((#1 envs), (#2 envs), body)
             end
           | trexp (A.ArrayExp{typ, size, init, pos}) =
             ((if getTy(trexp(size)) <> T.INT
-              then ErrorMsg.error pos "initial size of array must be of time int");
+              then ErrorMsg.error pos "initial size of array must be of time int"
+              else ());
              (case S.look(tenv, typ)
                of SOME(T.ARRAY(ty, unique)) =>
-                  ((if actual_ty(ty) <> getTy(trexp(init))
-                    then (ErrorMsg.error pos "initial array value must be of type " ^ S.name typ));
+                  ((if actual_ty(ty, pos) <> getTy(trexp(init))
+                    then ErrorMsg.error pos ("initial array value must be of type " ^ S.name typ)
+                    else ());
                    {exp= (), ty= T.ARRAY(ty, unique)})
-                | _ => (ErrorMsg.error pos "undefined array type " ^ S.name typ;
-                        {exp= () ty= T.BOTTOM})))
+                | _ => (ErrorMsg.error pos ("undefined array type " ^ S.name typ);
+                        {exp= (), ty= T.BOTTOM})))
 
         and trvar (A.SimpleVar(id, pos)) =
             (case S.look(venv, id)
