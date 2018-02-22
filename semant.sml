@@ -13,6 +13,8 @@ struct
 type env = Env.env
 type expty = {exp: Translate.exp, ty: Types.ty}
 
+val env = () (* incoming *)
+
 structure S = Symbol
 structure A = Absyn
 structure E = Env
@@ -101,7 +103,7 @@ fun transExp(env: env, exp : A.exp) =
                           {exp= (), ty= T.BOTTOM}))
             end
           | trexp (A.RecordExp{fields = args, typ = typ, pos = pos}) =
-            let val recdec = E.lookupTy(typ, env)
+          let val recdec = E.lookupTy(typ, env)
                 fun trfield (sym, exp, pos) = (sym, getTy(trexp(exp)), pos)
             in (case recdec
                  of SOME(T.RECORD(params, unique)) =>
@@ -139,9 +141,10 @@ fun transExp(env: env, exp : A.exp) =
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
-            let val envs = extendEnvs(decs, venv, tenv)
-            in transExp((#1 envs), (#2 envs), body)
-            end
+            (S.openScope();
+             writeDecs(decs);
+             transExp(body);
+             S.closeScope())
           | trexp (A.ArrayExp{typ, size, init, pos}) =
             (assertType(trexp size, pos, T.INT);
              (case E.lookupTy(typ, env)
