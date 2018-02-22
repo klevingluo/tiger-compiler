@@ -1,29 +1,22 @@
 signature SEMANT =
 sig
-    type venv
-    type tenv
     type expty
 
     val transProg : Absyn.exp -> unit
-    val transVar: venv * tenv * Absyn.var -> expty
-    val transExp: venv * tenv * Absyn.exp -> expty
-    val transDec: venv * tenv * Absyn.dec -> {venv: venv, tenv: tenv}
-    val transTy:         tenv * Absyn.ty  -> Types.ty
+    val transExp: Absyn.exp -> expty
 end
 
 structure Semant : SEMANT =
 struct
 
-type venv = Env.enventry Symbol.table
-type tenv = Types.ty Symbol.table
 type expty = {exp: Translate.exp, ty: Types.ty}
+
+val env = () (* incoming *)
 
 structure S = Symbol
 structure A = Absyn
 structure E = Env
 structure T = Types
-
-fun transVar(venv : venv, tenv : tenv, var : A.var) = {exp= (), ty= T.UNIT}
 
 fun getTy({exp, ty} : expty) = ty
 
@@ -67,9 +60,36 @@ fun actual_ty(ty : T.ty, pos : int) =
                    T.NIL))
       | _ => ty
 
-fun extendEnvs(decs : A.dec list, venv : venv, tenv : tenv) = (venv, tenv)
+fun writeDecs(dec::decs) =
+    let fun findTy(sym, pos) =
+            case S.lookupTy(env, sym)
+             of SOME(ty) => ty
+              | _ => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
+                      T.BOTTOM)
+        and fun writeFunDecs({name, params, result, body, pos}::fundecs) =
+                let  val resultTy =
+                         case result
+                          of SOME((sym, pos)) => findTy(sym, pos)
+                           | _ => T.UNIT
+                     val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos))(params)
+                in if getTy(transExp(body)) <> resultTy
+                   then ErrorMsg.error pos "function signature mismatch"
+                   else S.setVar(env, name, E.FunEntry{formals= paramTys, result= resultTy})
+                end
+              | writeFunDecs([]) = ()
+        and fun writeTyDecs({name, ty, pos}::tydecs) =
+                (S.setTy(env, name, findTy(ty, pos));
+                 writeTyDecs(tydecs))
+              | writeTyDecs([]) = ()
+    in case dec
+        of FunctionDec(decs) => writeFunDecs(decs)
+         | VarDec{name, escape, typ, init, pos} =>
+           S.setVar(env, name, E.VarEntry{ty= findTy(typ)})
+         | TypeDec(decs) => writeTyDecs(decs)
+    end
+  | writeDecs([]) = ()
 
-fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
+fun transExp(exp : A.exp) =
     let fun trexp (A.OpExp{left, oper= oper, right, pos}):expty =
             (checkInt(trexp left, pos);
              checkInt(trexp right, pos);
@@ -79,7 +99,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
           | trexp (A.IntExp(int)) = {exp= (), ty= T.INT}
           | trexp (A.StringExp(str, pos)) = {exp= (), ty= T.STRING}
           | trexp (A.CallExp{func, args, pos}) =
-            let val fundec = S.look(venv, func)
+            let val fundec = S.lookupVar(env, func)
             in (case fundec
                  of SOME(E.FunEntry{formals, result}) =>
                     (checkArgs(formals, map(trexp)(args), pos);
@@ -88,7 +108,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                           {exp= (), ty= T.BOTTOM}))
             end
           | trexp (A.RecordExp{fields = args, typ = typ, pos = pos}) =
-            let val recdec = S.look(tenv, typ)
+            let val recdec = S.lookupTy(env, typ)
                 fun trfield (sym, exp, pos) = (sym, getTy(trexp(exp)), pos)
             in (case recdec
                  of SOME(T.RECORD(params, unique)) =>
@@ -129,18 +149,22 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
             ((if getTy(trexp(lo)) <> T.INT orelse getTy(trexp(hi)) <> T.INT
               then ErrorMsg.error pos "low and hi bounds of for expressions must be of type int"
               else ());
-             transExp(S.enter(venv, var, Env.VarEntry({ty= T.INT})), tenv, body);
+             S.openScope();
+             S.setVar(env, var, Env.VarEntry({ty= T.INT}));
+             transExp(body);
+             S.closeSope();
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
-            let val envs = extendEnvs(decs, venv, tenv)
-            in transExp((#1 envs), (#2 envs), body)
-            end
+            (S.openScope();
+             writeDecs(decs);
+             transExp(body);
+             S.closeScope())
           | trexp (A.ArrayExp{typ, size, init, pos}) =
             ((if getTy(trexp(size)) <> T.INT
               then ErrorMsg.error pos "initial size of array must be of time int"
               else ());
-             (case S.look(tenv, typ)
+             (case S.lookupTy(env, typ)
                of SOME(T.ARRAY(ty, unique)) =>
                   ((if actual_ty(ty, pos) <> getTy(trexp(init))
                     then ErrorMsg.error pos ("initial array value must be of type " ^ S.name typ)
@@ -150,7 +174,7 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                         {exp= (), ty= T.BOTTOM})))
 
         and trvar (A.SimpleVar(id, pos)) =
-            (case S.look(venv, id)
+            (case S.lookupVar(env, id)
               of SOME(E.VarEntry{ty}) => {exp= (), ty= actual_ty(ty, pos)}
                | _ => (ErrorMsg.error pos ("undefined variable " ^ S.name id);
                        {exp= (), ty= T.BOTTOM}))
@@ -181,16 +205,8 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
     in trexp(exp)
     end
 
-fun transDec(venv : venv, tenv : tenv, dec : A.dec) = {venv= venv, tenv= tenv}
-
-fun transTy(tenv : tenv, ty : A.ty) = T.UNIT
-
 fun transProg(exp : A.exp) =
-    let val tenv = Env.base_tenv
-        val venv = Env.base_venv
-    in
-        (transExp(venv, tenv, exp);
-         ())
-    end
+    (transExp(exp);
+     ())
 
 end (* structure Semant *)
