@@ -9,8 +9,8 @@ sig
 
   val openScope : env -> unit
   val closeScope : env -> unit
-  val setVar: (Symbol.symbol * enventry * env) -> unit
-  val setTy: (Symbol.symbol * ty * env) -> unit
+  val setVar: Symbol.symbol * enventry * env -> unit
+  val setTy: Symbol.symbol * ty * env -> unit
   val lookupTy : Symbol.symbol * env -> ty option
   val lookupVar : Symbol.symbol * env -> enventry option
 end

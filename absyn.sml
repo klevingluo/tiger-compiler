@@ -18,18 +18,18 @@ and exp = VarExp of var
         | AssignExp of {var: var, exp: exp, pos: pos}
         | IfExp of {test: exp, then': exp, else': exp option, pos: pos}
         | WhileExp of {test: exp, body: exp, pos: pos}
-  | ForExp of {var: symbol, escape: bool ref,
-         lo: exp, hi: exp, body: exp, pos: pos}
+        | ForExp of {var: symbol, escape: bool ref,
+                     lo: exp, hi: exp, body: exp, pos: pos}
         | BreakExp of pos
         | LetExp of {decs: dec list, body: exp, pos: pos}
         | ArrayExp of {typ: symbol, size: exp, init: exp, pos: pos}
 
 and dec = FunctionDec of fundec list
         | VarDec of {name: symbol,
-         escape: bool ref,
-         typ: (symbol * pos) option,
-         init: exp,
-         pos: pos}
+                     escape: bool ref,
+                     typ: (symbol * pos) option,
+                     init: exp,
+                     pos: pos}
         | TypeDec of {name: symbol, ty: ty, pos: pos} list
 
 and ty = NameTy of symbol * pos
