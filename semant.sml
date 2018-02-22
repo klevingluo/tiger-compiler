@@ -27,9 +27,28 @@ fun transVar(venv : venv, tenv : tenv, var : A.var) = {exp= (), ty= T.UNIT}
 
 fun getTy({exp, ty} : expty) = ty
 
-fun checkInt({exp : Translate.exp, ty : T.ty}, pos : int) =
-    case ty of T.INT => ()
-            |  _ => ErrorMsg.error pos "integer required"
+fun type2string(T.RECORD(fields, unique)) = 
+      let val body = case fields
+                       of [] => ""
+                        | (sym, ty)::rest => 
+                            (Symbol.name(sym) ^ " : " ^ type2string(ty) ^ ", ")
+      in
+        "{" ^ body ^ "}"
+      end
+  | type2string(T.NIL) = "nil"
+  | type2string(T.INT) = "int"
+  | type2string(T.STRING) = "string"
+  | type2string(T.ARRAY(ty, unique)) = ("[" ^ type2string(ty) ^ "]")
+  | type2string(T.UNIT) = "unit"
+  | type2string(T.BOTTOM) = "bottom"
+  | type2string(T.NAME(sym, maybe)) = case !maybe 
+        of SOME(ty) => (Symbol.name(sym) ^ " AKA " ^ type2string(ty))
+         | NONE => "unknown"
+
+fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
+    case ty of expect => ()
+            |  _ => ErrorMsg.error pos ("expected type:" ^ type2string(expect) ^ 
+            "got type:" ^ type2string(ty))
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
     if param = ty
@@ -71,8 +90,8 @@ fun extendEnvs(decs : A.dec list, venv : venv, tenv : tenv) = (venv, tenv)
 
 fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
     let fun trexp (A.OpExp{left, oper= oper, right, pos}):expty =
-            (checkInt(trexp left, pos);
-             checkInt(trexp right, pos);
+            (assertType(trexp left, pos, T.INT);
+             assertType(trexp right, pos, T.INT);
              {exp= (), ty= T.INT})
           | trexp (A.VarExp(var)) = trvar(var)
           | trexp (A.NilExp) = {exp= (), ty= T.NIL}
@@ -102,33 +121,24 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
             in foldl(buildSeqExp)({exp= (), ty= T.BOTTOM})(exps)
             end
           | trexp (A.AssignExp{var, exp, pos}) =
-            if getTy(trvar(var)) = getTy(trexp(exp))
-            then {exp= (), ty= T.BOTTOM}
-            else (ErrorMsg.error pos "tycon mismatch";
-                  {exp= (), ty= T.BOTTOM})
+            (assertType(trexp exp, pos, getTy(trvar var)); 
+             {exp= (), ty= T.BOTTOM})
           | trexp (A.IfExp{test, then', else', pos}) =
-            ((if getTy(trexp(test)) <> T.INT
-              then ErrorMsg.error pos "test case must be of type bool/int"
-              else ());
-             (case else'
-               of SOME(exp) =>
-                  if getTy(trexp(then')) <> getTy(trexp(exp))
-                  then ErrorMsg.error pos "branches of if/else must be of equal type"
-                  else ()
-                | NONE => ());
+          (assertType(trexp test, pos, T.INT);
+          (case else'
+             of SOME(exp) =>
+             if getTy(trexp(then')) <> getTy(trexp(exp))
+             then ErrorMsg.error pos "branches of if/else must be of equal type"
+             else ()
+              | NONE => ());
              trexp(then'))
           | trexp (A.WhileExp{test, body, pos}) =
-            ((if getTy(trexp(test)) <> T.INT
-              then ErrorMsg.error pos "test case must be of type bool/int"
-              else ());
-             (if getTy(trexp(body)) <> T.UNIT
-              then ErrorMsg.error pos "body must be of type unit"
-              else ());
+            (assertType(trexp test, pos, T.INT);
+             assertType(trexp body, pos, T.UNIT);
              {exp= (), ty= T.UNIT})
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
-            ((if getTy(trexp(lo)) <> T.INT orelse getTy(trexp(hi)) <> T.INT
-              then ErrorMsg.error pos "low and hi bounds of for expressions must be of type int"
-              else ());
+            (assertType(trexp hi, pos, T.INT);
+             assertType(trexp lo, pos, T.UNIT);
              transExp(S.enter(venv, var, Env.VarEntry({ty= T.INT})), tenv, body);
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
@@ -137,14 +147,10 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
             in transExp((#1 envs), (#2 envs), body)
             end
           | trexp (A.ArrayExp{typ, size, init, pos}) =
-            ((if getTy(trexp(size)) <> T.INT
-              then ErrorMsg.error pos "initial size of array must be of time int"
-              else ());
+            (assertType(trexp size, pos, T.INT);
              (case S.look(tenv, typ)
                of SOME(T.ARRAY(ty, unique)) =>
-                  ((if actual_ty(ty, pos) <> getTy(trexp(init))
-                    then ErrorMsg.error pos ("initial array value must be of type " ^ S.name typ)
-                    else ());
+                  (assertType(trexp init, pos, actual_ty(ty,pos));
                    {exp= (), ty= T.ARRAY(ty, unique)})
                 | _ => (ErrorMsg.error pos ("undefined array type " ^ S.name typ);
                         {exp= (), ty= T.BOTTOM})))
@@ -163,7 +169,6 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
                   | findFieldType([], id, pos) =
                     (ErrorMsg.error pos ("undefined field " ^ S.name id);
                      T.BOTTOM)
-
             in (case ty
                  of T.RECORD(fields, unique) =>
                     {exp= (), ty=findFieldType(fields, id, pos)}
