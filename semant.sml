@@ -23,8 +23,6 @@ structure A = Absyn
 structure E = Env
 structure T = Types
 
-fun transProg(exp : A.exp) = ()
-
 fun transVar(venv : venv, tenv : tenv, var : A.var) = {exp= (), ty= T.UNIT}
 
 fun getTy({exp, ty} : expty) = ty
@@ -186,5 +184,13 @@ fun transExp(venv : venv, tenv : tenv, exp : A.exp) =
 fun transDec(venv : venv, tenv : tenv, dec : A.dec) = {venv= venv, tenv= tenv}
 
 fun transTy(tenv : tenv, ty : A.ty) = T.UNIT
+
+fun transProg(exp : A.exp) =
+    let val tenv = Env.base_tenv
+        val venv = Env.base_venv
+    in
+        (transExp(venv, tenv, exp);
+         ())
+    end
 
 end (* structure Semant *)
