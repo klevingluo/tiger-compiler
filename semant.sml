@@ -22,10 +22,10 @@ structure T = Types
 
 fun getTy({exp, ty} : expty) = ty
 
-fun type2string(T.RECORD(fields, unique)) = 
+fun type2string(T.RECORD(fields, unique)) =
       let val body = case fields
                        of [] => ""
-                        | (sym, ty)::rest => 
+                        | (sym, ty)::rest =>
                             (Symbol.name(sym) ^ " : " ^ type2string(ty) ^ ", ")
       in
         "{" ^ body ^ "}"
@@ -36,7 +36,7 @@ fun type2string(T.RECORD(fields, unique)) =
   | type2string(T.ARRAY(ty, unique)) = ("[" ^ type2string(ty) ^ "]")
   | type2string(T.UNIT) = "unit"
   | type2string(T.BOTTOM) = "bottom"
-  | type2string(T.NAME(sym, maybe)) = case !maybe 
+  | type2string(T.NAME(sym, maybe)) = case !maybe
         of SOME(ty) => (Symbol.name(sym) ^ " AKA " ^ type2string(ty))
          | NONE => "unknown"
 
@@ -45,9 +45,9 @@ fun isSubType(T.NIL, T.RECORD(fields, unique)) = true
   | isSubType(x,y) = x = y
 
 fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
-  if isSubType(ty, expect) 
-  then () 
-  else ErrorMsg.error pos ("expected type: " ^ type2string(expect) ^ 
+  if isSubType(ty, expect)
+  then ()
+  else ErrorMsg.error pos ("expected type: " ^ type2string(expect) ^
     " got type: " ^ type2string(ty))
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
@@ -91,7 +91,7 @@ fun transExp(exp : A.exp, env) =
   (*todo: fix these 2 transformations*)
   let fun absynty2ty(A.NameTy(sym, pos)) = T.NIL
         | absynty2ty(A.RecordTy(fields)) = T.NIL
-        | absynty2ty(A.ArrayTy(sym, pos)) = 
+        | absynty2ty(A.ArrayTy(sym, pos)) =
           case E.lookupTy(sym, env)
             of SOME(ty) => T.ARRAY(ty, ref ())
              | NONE => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
@@ -128,7 +128,7 @@ fun transExp(exp : A.exp, env) =
             in foldl(buildSeqExp)({exp= (), ty= T.BOTTOM})(exps)
             end
           | trexp (A.AssignExp{var, exp, pos}) =
-            (assertType(trexp exp, pos, getTy(trvar var)); 
+            (assertType(trexp exp, pos, getTy(trvar var));
              {exp= (), ty= T.BOTTOM})
           | trexp (A.IfExp{test, then', else', pos}) =
           (assertType(trexp test, pos, T.INT);
@@ -140,17 +140,25 @@ fun transExp(exp : A.exp, env) =
               | NONE => (trexp then')))
           | trexp (A.WhileExp{test, body, pos}) =
             (assertType(trexp test, pos, T.INT);
+             E.openLoop();
              assertType(trexp body, pos, T.UNIT);
+             E.closeLoop();
              {exp= (), ty= T.UNIT})
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             (assertType(trexp hi, pos, T.INT);
              assertType(trexp lo, pos, T.UNIT);
              E.openScope(env);
              E.setTy(var, T.INT, env);
+             E.openLoop();
              transExp(body, env);
+             E.closeLoop();
              E.closeScope(env);
              {exp= (), ty= T.UNIT})
-          | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
+          | trexp (A.BreakExp(pos)) =
+            (if not(E.inLoop())
+             then ErrorMsg.error pos "invalid break expression outside of loop"
+             else ();
+            {exp= (), ty= T.BOTTOM})
           | trexp (A.LetExp{decs, body, pos}) =
             (E.openScope(env);
              writeDecs(rev(decs), env);
@@ -185,13 +193,13 @@ fun transExp(exp : A.exp, env) =
                     (E.setTy(name, absynty2ty(ty), env);
                     writeTyDecs(tydecs, env))
                   | writeTyDecs([], _) = ()
-        in 
+        in
           (case dec
             of A.FunctionDec(decs) => writeFunDecs(decs, env)
              | A.VarDec{name, escape, typ, init, pos} =>
                  (case typ
                    (* the type is declared, so we assign it and check*)
-                   of SOME((sym, pos)) => 
+                   of SOME((sym, pos)) =>
                        let val ty = E.lookupTy(sym, env)
                        in
                        case ty
