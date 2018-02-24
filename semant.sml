@@ -13,8 +13,6 @@ struct
 type env = Env.env
 type expty = {exp: Translate.exp, ty: Types.ty}
 
-val env = Env.base_env
-
 structure S = Symbol
 structure A = Absyn
 structure E = Env
@@ -58,23 +56,19 @@ fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int
   | checkArgs(param::params, [], pos) = ErrorMsg.error pos "not enough arguments"
   | checkArgs([], [], pos) = ()
 
-fun checkFields(param::params : (Symbol.symbol * T.ty) list,
-                arg::args : (Symbol.symbol * T.ty * int) list,
-                pos : int) =
-    let fun checkField(param::params : (Symbol.symbol * T.ty) list,
-                       argSym : Symbol.symbol,
-                       argTy : T.ty,
-                       argPos : int) =
-            if (#1 param) = argSym andalso (#2 param) = argTy
+fun checkFields(param::params, arg::args, pos) =
+    let fun checkField((sym, ty)::params, (argSym, argTy, argPos)) =
+            if sym = argSym andalso isSubType(argTy,ty)
             then params
-            else param :: checkField(params, argSym, argTy, argPos)
-          | checkField([], argSym, argTy, argPos) = (ErrorMsg.error argPos ("extra field" ^ S.name argSym);
-                                                     [])
-    in checkFields(checkField(params, (#1 arg), (#2 arg), pos), args, pos)
+            else param :: checkField(params, (argSym, argTy, argPos))
+          | checkField([], (argSym, argTy, argPos)) = (ErrorMsg.error argPos ("record field not found:" ^ S.name argSym); [])
+    in 
+      checkFields(checkField(param::params, arg), args, pos)
     end
-
-  | checkFields(param::params, [], pos) = ErrorMsg.error pos ("missing argument(s) " ^ S.name (#1 param))
-  | checkFields([], arg::args, pos) = ErrorMsg.error pos ("extra argument(s) " ^ S.name (#1 arg))
+  | checkFields((sym, ty)::params, [], pos) = 
+      ErrorMsg.error pos ("missing argument(s) " ^ S.name sym)
+  | checkFields([], (argSym, argTy, argPos)::args, pos) = 
+      ErrorMsg.error pos ("extra argument(s) " ^ S.name argSym)
   | checkFields([], [], pos) = ()
 
 fun actual_ty(ty : T.ty, pos : int) =
@@ -88,14 +82,31 @@ fun actual_ty(ty : T.ty, pos : int) =
 
 fun transExp(exp : A.exp, env) =
 
-  (*todo: fix these 2 transformations*)
-  let fun absynty2ty(A.NameTy(sym, pos)) = T.NIL
-        | absynty2ty(A.RecordTy(fields)) = T.NIL
+  let fun absynty2ty(A.NameTy(sym, pos)) = 
+          (case E.lookupTy(sym, env)
+            of SOME(ty) => T.NAME(sym, (ref (SOME(ty))))
+             | NONE => T.NAME(sym, (ref (NONE))))
+        | absynty2ty(A.RecordTy(fields)) = 
+            let 
+              fun transformField({name, typ, escape, pos} : A.field) = 
+                (name, fillTy(typ, pos, env))
+              val transformedFields = map(transformField)(fields)
+            in 
+              T.RECORD(transformedFields, ref ())
+            end
         | absynty2ty(A.ArrayTy(sym, pos)) = 
           case E.lookupTy(sym, env)
             of SOME(ty) => T.ARRAY(ty, ref ())
              | NONE => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
                     (T.ARRAY(T.BOTTOM, ref ())))
+  and fillTy(sym, pos, env) =
+                case E.lookupTy(sym, env)
+                 of SOME(ty) => T.NAME(sym, (ref (SOME(ty))))
+                  | _ => T.NAME(sym, (ref (NONE)))
+  and findTy(sym, pos, env) =
+                case E.lookupTy(sym, env)
+                 of SOME(ty) => ty
+                  | _ => (ErrorMsg.error pos ("undefined type " ^ S.name sym); T.BOTTOM)
   and trexp (A.OpExp{left, oper= oper, right, pos}):expty =
             (assertType(trexp left, pos, T.INT);
              assertType(trexp right, pos, T.INT);
@@ -145,17 +156,17 @@ fun transExp(exp : A.exp, env) =
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             (assertType(trexp hi, pos, T.INT);
              assertType(trexp lo, pos, T.UNIT);
-             E.openScope(env);
+             E.beginScope(env);
              E.setTy(var, T.INT, env);
              transExp(body, env);
-             E.closeScope(env);
+             E.endScope(env);
              {exp= (), ty= T.UNIT})
           | trexp (A.BreakExp(pos)) = {exp= (), ty= T.BOTTOM}
           | trexp (A.LetExp{decs, body, pos}) =
-            (E.openScope(env);
+            (E.beginScope(env);
              writeDecs(rev(decs), env);
              transExp(body, env);
-             E.closeScope(env);
+             E.endScope(env);
              {exp= (), ty= T.BOTTOM})
           | trexp (A.ArrayExp{typ, size, init, pos}) =
             (assertType(trexp size, pos, T.INT);
@@ -176,9 +187,10 @@ fun transExp(exp : A.exp, env) =
                               of SOME((sym, pos)) => findTy(sym, pos, env)
                                | _ => T.UNIT
                          val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos, env))(params)
-                    in if getTy(transExp(body, env)) <> resultTy
-                       then ErrorMsg.error pos "function signature mismatch"
-                       else E.setVar(name, E.FunEntry{formals= paramTys, result= resultTy}, env)
+                    in 
+                      (map(fn {name, escape, typ, pos} => E.setVar(name, E.VarEntry{ty=findTy(typ, pos, env)}, env))(params);
+                       assertType(transExp(body, env), pos, resultTy);
+                       E.setVar(name, E.FunEntry{formals= paramTys, result= resultTy}, env))
                     end
                   | writeFunDecs([], _) = ()
             fun writeTyDecs({name, ty, pos}::tydecs, env) =
@@ -201,7 +213,7 @@ fun transExp(exp : A.exp, env) =
                         end
                     (* no type is declared, we infer based on the value *)
                     | _ => E.setVar(name, E.VarEntry{ty=getTy(transExp(init, env))}, env))
-             | A.TypeDec(decs) => (writeTyDecs(decs, env));
+             | A.TypeDec(decs) => (writeTyDecs(rev(decs), env));
              writeDecs(restdecs, env))
         end
       | writeDecs([], _) = ()
@@ -232,12 +244,11 @@ fun transExp(exp : A.exp, env) =
                   | _ => (ErrorMsg.error pos "not array";
                           {exp= (), ty= T.BOTTOM}))
             end
-
     in trexp(exp)
     end
 
 fun transProg(exp : A.exp) =
-    let val env = Env.base_env
+    let val env = Env.base_env()
     in
         (transExp(exp, env);
          ())

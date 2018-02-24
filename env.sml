@@ -5,10 +5,10 @@ sig
                     | FunEntry of {formals: ty list, result: ty}
   type env = (ty Symbol.table ref * enventry Symbol.table ref) list ref
 
-  val base_env : env
+  val base_env : unit -> env
 
-  val openScope : env -> unit
-  val closeScope : env -> unit
+  val beginScope : env -> unit
+  val endScope : env -> unit
   val setVar: Symbol.symbol * enventry * env -> unit
   val setTy: Symbol.symbol * ty * env -> unit
   val lookupTy : Symbol.symbol * env -> ty option
@@ -25,9 +25,9 @@ struct
   type scope = (ty Symbol.table ref * enventry Symbol.table ref)
   type env = scope list ref
 
-  fun openScope(env) = env := (ref Symbol.empty, ref Symbol.empty):: !env
+  fun beginScope(env) = env := (ref Symbol.empty, ref Symbol.empty):: !env
 
-  fun closeScope(env) = 
+  fun endScope(env) = 
     case !env 
       of [] => ErrorMsg.error 0 "Tried to close root scope"
        | scope::rest => env := rest
@@ -71,6 +71,5 @@ struct
 
   val base_venv : enventry Symbol.table = Symbol.empty
 
-  val base_env : env = ref [(ref base_tenv, ref base_venv)]
+  fun base_env() : env = ref [(ref base_tenv, ref base_venv)]
 end
-
