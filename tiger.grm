@@ -70,7 +70,7 @@ program	: exp (exp)
 decs : decs dec %prec DECS (dec::decs)
      |                     ([])
 
-dec : tydeclist %prec DECS  (A.TypeDec(tydeclist))
+dec : tydeclist %prec DECS  (A.TypeDec(rev(tydeclist)))
     | vardec                (vardec)
     | fundeclist %prec DECS (A.FunctionDec(fundeclist))
 
@@ -138,7 +138,7 @@ exp : lvalue                             (A.VarExp(lvalue))
                                                     pos=IDleft}))
 
     | ID LPAREN explist RPAREN           (A.CallExp({func=Symbol.symbol(ID),
-                                                    args=explist,
+                                                    args=rev(explist),
                                                     pos=IDleft}))
 
     | exp arithop exp %prec PLUS         (A.OpExp({left=exp1,
@@ -194,7 +194,7 @@ exp : lvalue                             (A.VarExp(lvalue))
 
     | BREAK                              (A.BreakExp(BREAKleft))
     | LET decs IN END                    (A.SeqExp([]))
-    | LET decs IN exp expseq END         (A.LetExp({decs=decs,
+    | LET decs IN exp expseq END         (A.LetExp({decs=rev(decs),
                                                     body=A.SeqExp((exp, expleft)
                                                     :: rev(expseq)),
                                                     pos=LETleft}))

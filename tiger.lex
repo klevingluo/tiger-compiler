@@ -6,12 +6,12 @@ type lexresult = (svalue,pos) token
 val lineNum = ErrorMsg.lineNum
 val linePos = ErrorMsg.linePos
 
-val stringPos = ref (1, 1, 1)
-val string = ref [""]
+val stringPos : (int * int * int) ref = ref (1, 1, 1)
+val string : string list ref= ref [""]
 
-val commentPos = ref [(1, 1, 1)]
+val commentPos : (int * int * int) list ref= ref [(1, 1, 1)]
 
-val state = ref "initial"
+val state : string ref= ref "initial"
 
 fun topLinePos() = let val (top :: _) = !linePos in top end
 fun posTuple(pos) = let val (topLinePos :: _ ) = !linePos in (pos, !lineNum, topLinePos) end

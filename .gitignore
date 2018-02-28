@@ -4,6 +4,7 @@
 
 # no tmp build files
 .cm/
+testresults/
 **.lex.sml
 
 **.pdf
