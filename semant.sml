@@ -20,26 +20,6 @@ structure T = Types
 
 fun getTy({exp, ty} : expty) = ty
 
-fun type2string(T.RECORD(fields, unique)) =
-      let 
-        fun transfields([]) = ""
-          | transfields((sym, ty)::rest) = 
-          (Symbol.name(sym) ^ " : " ^ 
-            type2string(ty) ^ ", " ^ transfields(rest))
-        val body = transfields(fields)
-      in
-        "{" ^ body ^ "}"
-      end
-  | type2string(T.NIL) = "nil"
-  | type2string(T.INT) = "int"
-  | type2string(T.STRING) = "string"
-  | type2string(T.ARRAY(ty, unique)) = ("[" ^ type2string(ty) ^ "]")
-  | type2string(T.UNIT) = "unit"
-  | type2string(T.BOTTOM) = "bottom"
-  | type2string(T.NAME(sym, maybe)) = case !maybe
-        of SOME(ty) => (Symbol.name(sym) ^ " AKA " ^ type2string(ty))
-         | NONE => "unknown"
-
 fun isSubType(T.NIL, T.RECORD(fields, unique)) = true
   | isSubType(T.BOTTOM, _) = true
   | isSubType(x,y) = x = y
@@ -49,16 +29,15 @@ fun actual_ty(ty : T.ty, pos : int) =
      of T.NAME(sym, tyref) => (* reference to an optional type *)
         (case (!tyref)
           of SOME(ty) => actual_ty(ty, pos)
-           | _ => (print(type2string(ty) ^ "\n");
-                   ErrorMsg.error pos ("undefined type " ^ S.name sym);
-                   T.NIL))
+           | _ => (ErrorMsg.error pos ("undefined type " ^ S.name sym);
+                   T.BOTTOM))
       | _ => ty
 
 fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
     if isSubType(actual_ty(ty, pos), actual_ty(expect, pos))
     then ()
-    else ErrorMsg.error pos ("expected type: " ^ type2string(expect) ^
-    " got type: " ^ type2string(ty))
+    else ErrorMsg.error pos ("expected type: " ^ T.type2string(expect) ^
+    " got type: " ^ T.type2string(ty))
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
     assertType({exp=exp, ty=ty}, pos, param)
@@ -68,14 +47,9 @@ fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int
 
 fun checkFields(param::params, arg::args, pos) =
     let fun checkField((sym, ty)::params, (argSym, argTy, argPos)) =
-            (
-            print ("sym: " ^ Symbol.name sym ^ "\n");
-            print ("argsym: " ^ Symbol.name argSym ^ "\n");
-            (
             if Symbol.name sym = Symbol.name argSym
-            then (print("match");assertType({exp= (), ty=argTy}, argPos, ty); params)
+            then (assertType({exp= (), ty=argTy}, argPos, ty); params)
             else (sym, ty) :: checkField(params, (argSym, argTy, argPos))
-            ))
           | checkField([], (argSym, argTy, argPos)) = (ErrorMsg.error argPos 
              ("record field not found: " ^ S.name argSym); [])
     in 
@@ -87,29 +61,20 @@ fun checkFields(param::params, arg::args, pos) =
       ErrorMsg.error pos ("extra argument(s) " ^ S.name argSym)
   | checkFields([], [], pos) = ()
 
-
-fun detect_loop(newSym : Symbol.symbol, ty : T.ty, pos : int) =
+fun transExp(exp : A.exp, env) =
+  let fun findTy(sym, pos, env) = E.lookupTy(sym, env, pos)
+  and detect_loop(ty, pos, acc) =
     case ty
      of T.NAME(sym, tyref) =>
-        if newSym = sym
-        then ErrorMsg.error pos ("loop detected dec of " ^ S.name newSym)
-        else (case (!tyref)
-               of SOME(ty) => detect_loop(newSym, ty, pos)
-                | _ => ())
+          (case !tyref
+            of SOME(ty2) => 
+                 if isSome(List.find(fn ref2 => (tyref = ref2))(acc))
+                 then
+                   ErrorMsg.error pos ("Unresolved type definition")
+                 else
+                   detect_loop(ty2, pos, tyref::acc)
+             | NONE => ErrorMsg.error pos ("undefined type" ^ S.name sym))
       | _ => ()
-
-fun transExp(exp : A.exp, env) =
-  let fun absynty2ty(A.NameTy(sym, pos)) = E.lookupTy(sym, env, pos)
-        | absynty2ty(A.RecordTy(fields)) = 
-            let 
-              fun transformField({name, typ, escape, pos} : A.field) = 
-                (name, findTy(typ, pos, env))
-              val transformedFields = map(transformField)(fields)
-            in 
-              T.RECORD(transformedFields, ref ())
-            end
-        | absynty2ty(A.ArrayTy(sym, pos)) = T.ARRAY(E.lookupTy(sym, env, pos), ref ())
-  and findTy(sym, pos, env) = E.lookupTy(sym, env, pos)
   and trexp (A.OpExp{left, oper= oper, right, pos}):expty =
             (assertType(trexp right, pos, getTy(trexp left));
              {exp= (), ty= T.INT})
@@ -184,8 +149,7 @@ fun transExp(exp : A.exp, env) =
                of T.ARRAY(ty, unique) =>
                   (assertType(trexp init, pos, actual_ty(ty,pos));
                    {exp= (), ty= T.ARRAY(ty, unique)})
-                | ty => (print(type2string(ty) ^ "\n");
-                ErrorMsg.error pos ("undefined array type " ^ S.name typ); {exp= (), ty= T.BOTTOM})))
+                | ty => (ErrorMsg.error pos ("undefined array type " ^ S.name typ); {exp= (), ty= T.BOTTOM})))
     and  writeDecs(dec::restdecs, env) =
         let 
             (* code for processing recursive type declarations *)
@@ -238,8 +202,13 @@ fun transExp(exp : A.exp, env) =
                       | _ => ());
                    resolveTyDecs(tydecs, env))
               | resolveTyDecs([], _) = ()
-            fun checkTyDecs({name, ty, pos}::tydecs, env) = ()
-              | checkTyDecs(_, _) = ()
+            fun checkTyDecs(tydecs, env) =
+              (let 
+                fun detectLoops({name,ty,pos}) = 
+                  detect_loop(E.lookupTy(name, env, pos), pos, [])
+              in
+                map detectLoops tydecs
+              end; ())
             fun writeTyDecs(tydecs, env) =
                   (addTyDecs(tydecs, env);
                    resolveTyDecs(tydecs, env);

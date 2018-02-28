@@ -2,6 +2,10 @@
 
 let
 	var a:= 0
+  type a = b
+  type b = {na: a}
+  type c = b
+  type b = a
 in 
 	for i:=0 to 100 do (a:=a+1;())
 end
