@@ -22,12 +22,12 @@ let
                      1,0,1,1,1,1,1,1,1,1,
                      1,1,1,1,1,1,0,1,1,0,
                      1,1,1,1,1,1,0,1,1,1,
-                     0,0,1,0,1,0,0,0,1]
+                     0,0,1,0,1,0,0,0,1,1]
   val counter = ref 1
   val outstream = TextIO.openAppend "testresults/tests"
 in
   while 
-    !counter < 50 
+    !counter < 51 
   do 
   if (runTestCase(!counter) <> (hd(!results)))
   then
