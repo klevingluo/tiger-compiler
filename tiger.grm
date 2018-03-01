@@ -178,7 +178,7 @@ exp : lvalue                             (A.VarExp(lvalue))
 
     | IF exp THEN exp ELSE exp           (A.IfExp({test=exp1,
                                                    then'=exp2,
-                                                   else'=SOME(exp2),
+                                                   else'=SOME(exp3),
                                                    pos=IFleft}))
 
     | WHILE exp DO exp                   (A.WhileExp({test=exp1,

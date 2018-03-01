@@ -40,7 +40,8 @@ fun assertType({exp : Translate.exp, ty : T.ty}, pos, expect) =
     " got type: " ^ T.type2string(ty))
 
 fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int) =
-    assertType({exp=exp, ty=ty}, pos, param)
+    (assertType({exp=exp, ty=ty}, pos, param);
+     checkArgs(params, args, pos))
   | checkArgs([], arg::args, pos) = ErrorMsg.error pos "too many arguments"
   | checkArgs(param::params, [], pos) = ErrorMsg.error pos "not enough arguments"
   | checkArgs([], [], pos) = ()
@@ -115,7 +116,9 @@ fun transExp(exp : A.exp, env) =
              (if getTy(trexp(then')) <> getTy(trexp(exp))
               then ErrorMsg.error pos "branches of if/else must be of equal type"
               else ();trexp(exp))
-              | NONE => (trexp then')))
+              | NONE => 
+                  (assertType(trexp then', pos, T.UNIT);
+                  trexp then')))
           | trexp (A.WhileExp{test, body, pos}) =
             (assertType(trexp test, pos, T.INT);
              E.openLoop();
