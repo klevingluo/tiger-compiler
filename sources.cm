@@ -12,8 +12,8 @@ parse.sml
 absyn.sml
 prabsyn.sml
 
-tiger.lex
-tiger.grm
+parser/tiger.lex
+parser/tiger.grm
 
 types.sml
 env.sml

@@ -1,10 +1,6 @@
 /* error: sematic error, loops in type definitions are not allowed */
 let 
-	type a = b
-	type b = c
-	type c = a
-
-	var a:= rectype nil
+  function f(x:int) :int = x
 in
-	a
+  f
 end

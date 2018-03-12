@@ -3,7 +3,7 @@ sig
   type env
   type expty
 
-  val transProg : Absyn.exp -> unit
+  val transProg : Absyn.exp -> Translate.exp
 end
 
 structure Semant : SEMANT =
