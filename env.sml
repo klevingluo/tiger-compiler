@@ -1,8 +1,12 @@
 signature ENV =
 sig
   type ty
-  datatype enventry = VarEntry of {ty: ty}
-                    | FunEntry of {formals: ty list, result: ty}
+  datatype enventry = VarEntry of {access: Translate.access, ty: ty}
+                    | FunEntry of {level: Translate.level,
+                                   label: Temp.label,
+                                   formals: ty list, 
+                                   result: ty}
+
   type env = (ty Symbol.table ref * enventry Symbol.table ref) list ref
 
   val base_env : unit -> env
