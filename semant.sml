@@ -60,7 +60,7 @@ fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int
 (* params are the types desired, and args are the types that we have *)
 (* returns a list of the args in order of declaration *)
 (* TODO:  this is gonna be mad buggy, will need to fix *)
-fun checkFields(param::params, arg::args, pos) =
+fun checkFields(param::params, args, pos) =
     let val sortedArgs = ref []
         (* finds the arg corresponding to a single field, adds it to the sorted
          * args, returns the remaining args*)
@@ -81,9 +81,10 @@ fun checkFields(param::params, arg::args, pos) =
               M.error pos ("extra argument(s) " ^ S.name argSym)
           | checkFieldsHelper([], [], pos) = ()
     in
-      (checkFieldsHelper(params, checkField(param, arg::args), pos);
+      (checkFieldsHelper(params, checkField(param, args), pos);
        rev(!sortedArgs))
     end
+  | checkFields([], args, pos) = []
 
 fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
   let 
@@ -112,8 +113,8 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                            raise Fail "")
                   in case actual_ty(ty, pos)
                      of T.RECORD(fields, unique) => 
-                          case findFieldType(fields, id, 0, pos) of
-                               (ind, ty) => {exp=R.fieldVar(exp, ind), ty=ty}
+                          (case findFieldType(fields, id, 0, pos) of
+                               (ind, ty) => {exp=R.fieldVar(exp, ind), ty=ty})
                       | _ => (M.error pos ("no record type " ^ T.type2string(ty));
                           raise Fail "")
                   end
@@ -236,8 +237,8 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
            end)
           | trexp (A.WhileExp{test, body, pos}) =
               let val {exp=testexp, ty=testty} = trexp test
+                  val {exp=bodyexp, ty=bodyty} = trexp test
                   val donelab = Temp.newlabel()
-                  val {exp=bodyexp, ty=bodyty} = transExp(body, env, level, donelab)
                   val whileexp = R.whileExp(testexp, bodyexp, donelab)
               in
                 (assertSubType(testty, pos, T.INT);
@@ -307,7 +308,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
              else ());
              {exp= (R.breakExp(break)), ty= T.BOTTOM})
           | trexp (A.ArrayExp{typ, size, init, pos}) =
-             case actual_ty(E.lookupTy(typ, env, pos), pos) of
+             (case actual_ty(E.lookupTy(typ, env, pos), pos) of
                   T.ARRAY(arrayty, unique) =>
                     let val {exp=sizeexp, ty=sizety} = trexp size
                         val {exp=initexp, ty=initty} = trexp init
@@ -315,18 +316,18 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                       (assertSubType(sizety, pos, T.INT);
                        assertSubType(initty, pos, actual_ty(arrayty,pos));
                        {exp=R.arrayExp(sizeexp, initexp), 
-                        ty=T.ARRAY(ty, unique)})
+                        ty=T.ARRAY(arrayty, unique)})
                     end
                 | ty => 
                     (M.error pos ("undefined array type " ^ S.name typ);
-                     raise Fail "")
-           | trexp (A.LetExp{decs, body, pos}) =
+                     raise Fail ""))
+          | trexp (A.LetExp{decs, body, pos}) =
             (E.beginScope(env);
              transDec(decs);
              trexp body;
              E.endScope(env);
-             {exp= (), ty= T.BOTTOM})
-    and transDec(dec::restdecs) : Tree.exp list=
+             {exp= R.intExp(3), ty= T.BOTTOM})
+    and transDec(dec::restdecs) : R.exp list =
         let 
             (* code for processing recursive type declarations *)
             fun addFunDecs({name, params, result, body, pos}::fundecs) =
@@ -336,7 +337,12 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                                | _ => T.UNIT
                          val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos))(params)
                     in 
-                       (E.setVar(name, E.FunEntry{formals= paramTys, result= resultTy}, env);
+                       (E.setVar(name, 
+                                 E.FunEntry{formals=paramTys, 
+                                            result=resultTy,
+                                            level=level,
+                                            label=Temp.newlabel()}, 
+                                 env);
                         addFunDecs(fundecs))
                     end
                   | addFunDecs([]) = ()
@@ -357,7 +363,9 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                map(fn {name, escape, typ, pos} => 
                        E.setVar(name, 
                        E.VarEntry{ty=findTy(typ, pos), 
-                                  access = (),
+                                  (* we don't think this matters, since this is
+                                   * only for typechecking *)
+                                  access=(R.allocLocal(level)(false)),
                                   writable=true}, 
                                   env))(params);
                let  
@@ -365,28 +373,29 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    case result
                      of SOME((sym, pos)) => findTy(sym, pos)
                       | _ => T.UNIT
-                 val transBody = 
+                 val {exp=bodyexp, ty=bodyty} = 
                    transExp(body, 
                             env, 
                             R.newLevel({parent=level,
                                         name=Temp.newlabel(),
                                         formals=
-                                          map(fn({name, escape, typ, pos})=> escape)
-                                          (params)}))
+                                          map(fn({name, escape, typ, pos})=> !escape)
+                                          (params)}),
+                            break)
                in 
-                 (assertType(transBody, resultTy);
+                 (assertSubType(bodyty, pos, resultTy);
                   (* saves the fragment containing the translated body and frame
                    * information *)
-                  R.procEntryExit(level, transBody))
+                  R.procEntryExit(level, bodyexp))
                end;
                E.endScope(env))
               | checkFunDecs([]) = ()
-              and writeFunDecs(decs) =
-                  (addFunDecs(decs);
-                   lookForFunDups(decs);
-                   checkFunDecs(decs))
+            fun writeFunDecs(decs: A.fundec list) =
+                  (addFunDecs(decs: A.fundec list);
+                   lookForFunDups(decs: A.fundec list);
+                   checkFunDecs(decs: A.fundec list))
               (* code for processing recursive type declarations *)
-              and transTy(A.NameTy(sym, pos)) = E.lookupTy(sym, env, pos)
+            fun transTy(A.NameTy(sym, pos)) = E.lookupTy(sym, env, pos)
                 | transTy(A.RecordTy(fields)) =
                   let fun transformField({name, typ, escape, pos}) = (name, findTy(typ, pos))
                       val transformedFields = map(transformField)(fields)
@@ -426,11 +435,13 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    lookForDups(tydecs);
                    checkTyDecs(tydecs);
                    ())
-          in case dec
-               of A.FunctionDec(decs) => (writeFunDecs(decs);[])
+          in 
+            case dec of
+                  A.FunctionDec(decs: A.fundec list) => (writeFunDecs(decs);[])
+                | A.TypeDec(decs) => (writeTyDecs(decs);[])
                 | A.VarDec{name, escape, typ, init, pos} =>
                   let
-                    val ty = case typ
+                    val ty = (case typ
                                (* the type is declared, so we assign it and check *)
                                of SOME((sym, pos)) => E.lookupTy(sym, env, pos)
                                (* no type is declared, we infer based on the value *)
@@ -438,28 +449,29 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                                             of T.NIL =>
                                                  (M.error pos "unqualified use of nil";
                                                   T.BOTTOM)
-                                             | ty => ty
-                    val access = R.allocLocal(level)(escape)
+                                             | ty => ty)
+                    val access = R.allocLocal(level)(!escape)
                     val entry = E.VarEntry{ty=ty, 
                                            access=access,
                                            writable=true}
-                    val tran = trexp init
+                    val {exp=initexp, ty=initty} = trexp init
                   in
-                    (assertType(tran, pos, ty);
-                     E.setVar(name, entry env);
-                     R.initialize(R.simpleVar(access, level),
-                                          tran)
-                  transDec(restdecs))
-                   end
-        end
-        | transDec([]) = ()
+                    (assertSubType(initty, pos, ty);
+                     E.setVar(name, entry, env);
+                     [R.initialize(R.simpleVar(access, level), initexp)])
+                  end
+          end
+        | transDec([]) = []
   in trexp(exp)
   end
 
 fun transProg(exp : A.exp) =
-    let val env = Env.base_env()
-    in (transExp(exp, env);
-        ())
+    let 
+      val env = Env.base_env()
+      val baselvl = R.outermost
+      val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
+    in 
+      exp
     end
 
 end (* structure Semant *)

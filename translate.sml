@@ -14,13 +14,7 @@ signature TRANSLATE =
 sig
   type level
   type access (* not the same as Frame.access *)
-
-  (* Ex : computed for value 
-   * Nx : computed for side effect 
-   * Cx : calculated for control *)
-  datatype exp = Ex of Tree.exp
-               | Nx of Tree.stm
-               | Cx of Temp.label * Temp.label -> Tree.stm
+  type exp
 
   val outermost  : level
   val newLevel   : {parent: level, name: Temp.label, formals: bool list} -> level
@@ -36,8 +30,8 @@ sig
   val unNx : exp -> Tree.stm
   val unCx : exp -> Temp.label * Temp.label -> Tree.stm
 
-  val procEntryExit : level * Tree.stm -> unit
-  val initialize : Tree.exp * Tree.exp -> exp
+  val procEntryExit : level * exp -> unit
+  val initialize : exp * exp -> exp
 
   (* instructions for translating expressions*)
   val nilExp    : unit -> exp
@@ -63,6 +57,9 @@ struct
   structure T = Tree
   structure A = Absyn
 
+  (* Ex : computed for value 
+   * Nx : computed for side effect 
+   * Cx : calculated for control *)
   datatype exp = Ex of Tree.exp
                | Nx of Tree.stm
                | Cx of Temp.label * Temp.label -> Tree.stm
@@ -171,8 +168,8 @@ struct
                      unEx(var))))
 
 (* code for handling expressions starts here *)
-  fun initialize(var : T.exp, val' : T.exp) =
-    Nx(T.MOVE(var, val'))
+  fun initialize(var : exp, val' : exp) =
+    Nx(T.MOVE(unEx(var), unEx(val')))
 
   fun opExp(left, oper, right) : exp =
     case oper
@@ -397,7 +394,7 @@ struct
     let
       val lab= Temp.newlabel
     in
-      (frags := Frame.PROC({body=exp, frame=frm}):: !frags;
+      (frags := Frame.PROC({body=unNx(exp), frame=frm}):: !frags;
        ())
     end
     | procEntryExit(BASE, exp) : unit = ()

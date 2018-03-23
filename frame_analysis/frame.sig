@@ -7,9 +7,9 @@ sig
   val formals : frame -> access list
   val allocLocal : frame -> bool -> access
 
-  (* this is the frame pointer *)
-  val FP : Temp.temp
-  (* the wordsize *)
+  val FP : Temp.temp (* frame pointer *)
+  val RV : Temp.temp (* return value, as seen by callee *)
+
   val wordSize : int
 
   (* an access and a expression that evaluates to the frame that the variable
@@ -20,11 +20,9 @@ sig
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
 
-  (* translates the calling conventions of a C function to the tiger calling
-   * conventions *)
+                (* translates the calling conventions of a C function to the tiger calling
+                 * conventions *)
   val externalCall: string * Tree.exp list -> Tree.exp
-
-  val RV : Temp.temp (* as seen by callee *)
 
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
 end
