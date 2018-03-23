@@ -94,7 +94,7 @@ struct
     case lookup(sym, env, varNames)
        of SOME(var) => var
         | _ => (ErrorMsg.error pos ("undefined variable " ^ Symbol.name sym);
-             VarEntry{ty= Types.BOTTOM})
+                raise Fail "undefined variable")
 
   val base_tenv =
       Symbol.enter(

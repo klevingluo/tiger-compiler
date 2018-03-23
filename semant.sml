@@ -43,7 +43,7 @@ fun assertType({exp : R.exp, ty : T.ty}, pos, expect) =
 
 (* throws an error if an unexpected type is found*)
 fun assertSubType(ty, pos, expect) =
-    if not isSubType(actual_ty(ty, pos), actual_ty(expect, pos))
+    if not (isSubType(actual_ty(ty, pos), actual_ty(expect, pos)))
     then M.error pos ("expected type: " ^ T.type2string(expect) ^
     " got type: " ^ T.type2string(ty))
     else ()
@@ -67,66 +67,67 @@ fun checkFields(param::params, arg::args, pos) =
         fun checkField((sym, ty), (argSym, {exp=argExp, ty=argTy}, argPos)::args) =
             if Symbol.name sym = Symbol.name argSym
             then (assertSubType(argTy, argPos, ty); 
-                  sortedArgs := argExp::!sortedArgs;
+                  sortedArgs := argExp:: !sortedArgs;
                   args)
             else (argSym, {exp=argExp, ty=argTy}, argPos)::
                  checkField((sym, ty), args)
           | checkField((sym, ty), []) = 
             (M.error pos ("missing record field: " ^ S.name sym); [])
-        fun checkFields(param::params, arg::args, pos) =
-            checkFields(params, checkField(param), pos)
-          | checkFields((sym, ty)::params, [], pos) =
+        fun checkFieldsHelper(param::params, arg::args, pos) =
+            checkFieldsHelper(params, checkField(param, arg::args), pos)
+          | checkFieldsHelper((sym, ty)::params, [], pos) =
               M.error pos ("missing argument(s) " ^ S.name sym)
-          | checkFields([], (_, _, _)::args, pos) =
+          | checkFieldsHelper([], (argSym, _, _)::args, pos) =
               M.error pos ("extra argument(s) " ^ S.name argSym)
-          | checkFields([], [], pos) = ()
+          | checkFieldsHelper([], [], pos) = ()
     in
-      (checkFields(params, checkField(param), pos);
-       rev !sortedArgs)
+      (checkFieldsHelper(params, checkField(param, arg::args), pos);
+       rev(!sortedArgs))
     end
 
-fun transExp(exp : A.exp, env, lev: R.level) =
+fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
   let 
     (* gets the type from an expty *)
     fun findTy(sym, pos) = E.lookupTy(sym, env, pos)
     (* returns and expty and whether the var is writable or not *)
     (* TODO:  clean this up a bit*)
-    fun transVar(A.SimpleVar(id, pos)) : (expty * bool) =
+    fun transVar(var) : (expty * bool) =
         let 
           val write = ref true
-          fun transVarHelp(A.SimpleVar(id, pos)) : (expty * bool) =
+          fun transVarHelp(A.SimpleVar(id, pos)) : expty =
             (case E.lookupVar(id, env, pos)
                of E.VarEntry{ty, access, writable} => 
                     (if not writable then write := false else ();
                      {exp = (R.simpleVar(access, level)), ty= actual_ty(ty, pos)})
                 | _ => (M.error pos ("undefined variable " ^ S.name id);
-                        {exp=(), ty= T.BOTTOM}))
+                        raise Fail ""))
             | transVarHelp(A.FieldVar(var, id, pos)) =
                   let val {exp, ty} = transVarHelp(var)
                       fun findFieldType((sym, ty)::fields, id, acc, pos) =
                           if sym = id
                           then (acc, actual_ty(ty, pos))
                           else findFieldType(fields, id, acc + 1, pos)
-                        | findFieldType([], id, pos) =
+                        | findFieldType([], id, acc, pos) =
                           (M.error pos ("undefined field " ^ S.name id);
-                           (0, T.BOTTOM))
+                           raise Fail "")
                   in case actual_ty(ty, pos)
                      of T.RECORD(fields, unique) => 
                           case findFieldType(fields, id, 0, pos) of
                                (ind, ty) => {exp=R.fieldVar(exp, ind), ty=ty}
                       | _ => (M.error pos ("no record type " ^ T.type2string(ty));
-                          {exp= (), ty= T.BOTTOM})
+                          raise Fail "")
                   end
-            | transVarHelp(A.SubscriptVar(var, exp, pos)) =
+            | transVarHelp(A.SubscriptVar(var, subexp, pos)) =
                    let val {exp, ty} = transVarHelp(var)
-                       val {exp=indexp, ty=indty} = trexp exp
+                       val {exp=indexp, ty=indty} = trexp subexp
                    in case actual_ty(ty, pos)
                         of T.ARRAY(ty, unique) => 
                            {exp= R.subscriptVar(exp, indexp), ty= ty}
-                         | _ => (M.error pos ("no array type for " ^ T.type2string(ty));
-                           {exp= (), ty= T.BOTTOM})
+                         | _ => 
+                           (M.error pos ("no array type for " ^ T.type2string(ty));
+                           raise Fail "")
                    end
-          and expt = transVarHelp(var)
+          val expt = transVarHelp(var)
         in
           (expt, !write)
         end
@@ -161,13 +162,13 @@ fun transExp(exp : A.exp, env, lev: R.level) =
                                assertSubType(lty, pos, T.INT))
               | A.MinusOp  => (assertSubType(rty, pos, T.INT); 
                                assertSubType(lty, pos, T.INT))
-              | A.TimesOp  => (assertSubType(try, pos, T.INT); 
+              | A.TimesOp  => (assertSubType(rty, pos, T.INT); 
                                assertSubType(lty, pos, T.INT))
               | A.DivideOp => (assertSubType(rty, pos, T.INT); 
                                assertSubType(lty, pos, T.INT));
-           R.opExp(rexp, oper, lexp))
+              {exp=R.opExp(rexp, oper, lexp), ty=T.INT})
         end
-        | trexp (A.VarExp(var))         = (#1 transVar(var))
+        | trexp (A.VarExp(var))         = (#1(transVar(var)))
         | trexp (A.NilExp)              = {exp=R.nilExp(), ty= T.NIL}
         | trexp (A.IntExp(i))           = {exp=R.intExp(i), ty= T.INT}
         | trexp (A.StringExp(str, pos)) = {exp=R.stringExp(str), ty=T.STRING}
@@ -183,36 +184,37 @@ fun transExp(exp : A.exp, env, lev: R.level) =
                    {exp=(R.callExp(label, argexps)), ty= result})
                 end
             | _ => (M.error pos ("undefined function " ^ S.name func);
-              {exp= (), ty= T.BOTTOM}))
+                    raise Fail ""))
         | trexp (A.RecordExp{fields = args, typ = typ, pos = pos}) =
           let val recdec = actual_ty(E.lookupTy(typ, env, pos), pos)
               fun trfield(sym, exp, pos) = (sym, trexp(exp), pos)
               val fields=map(trfield)(args)
-              val fieldtys= map(fn (sym, {exp, ty}, pos) => (sym, ty, pos))(args)
-              val fieldexps= map(fn (sym, {exp, ty}, pos) => (sym, exp))(args)
+              val fieldtys= map(fn (sym, {exp, ty}, pos) => (sym, ty, pos))(fields)
+              val fieldexps= map(fn (sym, {exp, ty}, pos) => (sym, exp))(fields)
           in (case recdec
                of T.RECORD(params, unique) =>
-                  (checkFields(params, fieldtys, pos);
-                   {exp=(R.record(checkFields(params, fieldtys, pos))), 
+                  (checkFields(params, fields, pos);
+                   {exp=(R.recordExp(checkFields(params, fields, pos))), 
                     ty=recdec})
                 | _ => (M.error pos ("undefined record " ^ S.name typ);
-                        {exp= (), ty= T.BOTTOM}))
+                        raise Fail ""))
           end
         | trexp (A.SeqExp(exps)) =
-          let val exps = map(trexp)(exps)
+          let val exps = map(fn (exp, pos) => trexp(exp))(exps)
+              val bodies = map(fn ({exp= exp, ty= ty}) => exp)(exps)
           in case List.last(exps)
               of {exp=lastexp, ty=ty} =>
-                 {exp=R.sequence(exps), ty=ty}
+                 {exp=R.seqExp(bodies), ty=ty}
           end
         | trexp (A.AssignExp{var, exp, pos}) =
-          let val (writable, {exp=varexp, ty=varty}) = transVar(var)
+          let val ({exp=varexp, ty=varty}, writable) = transVar(var)
               val {exp=valexp, ty=valty} = trexp exp
           in
-            (if not writable
-             then M.error pos ("writing to read only variable: " ^ S.name var)
+            (if (not writable)
+             then (M.error pos ("writing to read only variable: "); raise Fail "")
              else
-             (assertType(valexp, pos, varty);
-             {exp= (R.assign(varexp, valexp)), ty= T.UNIT}))
+             (assertSubType(valty, pos, varty);
+             {exp= (R.assignExp(varexp, valexp)), ty= T.UNIT}))
           end
         | trexp (A.IfExp{test, then', else', pos}) =
           (assertType(trexp test, pos, T.INT);
@@ -224,62 +226,64 @@ fun transExp(exp : A.exp, env, lev: R.level) =
                      let val {exp=elseexp, ty=elsety} = trexp exp
                      in
                        (assertSubType(elsety, pos, thenty);
-                        {exp=R.IfExp(testexp, thenexp, SOME(elseexp))
+                        {exp=R.ifExp(testexp, thenexp, SOME(elseexp)),
                          ty=elsety})
                      end
                  | NONE => 
                      (assertSubType(thenty, pos, T.UNIT);
-                      {exp=R.IfExp(testexp, thenexp, NONE)
+                      {exp=R.ifExp(testexp, thenexp, NONE),
                        ty=T.UNIT}))
            end)
           | trexp (A.WhileExp{test, body, pos}) =
-              let val {exp:testexp, ty:testty} = trexp test
-                  val {exp:bodyexp, ty:bodyty} = trexp test
+              let val {exp=testexp, ty=testty} = trexp test
+                  val donelab = Temp.newlabel()
+                  val {exp=bodyexp, ty=bodyty} = transExp(body, env, level, donelab)
+                  val whileexp = R.whileExp(testexp, bodyexp, donelab)
               in
                 (assertSubType(testty, pos, T.INT);
                  E.openLoop();
                  assertSubType(bodyty, pos, T.UNIT);
                  E.closeLoop();
-                 {exp= (R.whileExp(testexp, bodyexp)), 
+                 {exp= whileexp, 
                   ty= T.UNIT})
               end
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             let
               val whileAbsyn = A.LetExp({
-                decs= [A.VarDec({name= Symbol.symbol var,
+                decs= [A.VarDec({name= var,
                                  escape= escape,
-                                 typ=SOME(Symbol.symbol "int" * pos),
+                                 typ=SOME(((Symbol.symbol "int"), pos)),
                                  init=lo,
                                  pos=pos}), 
                        A.VarDec({name=Symbol.symbol "_limit",
-                                 escape=false,
-                                 typ=SOME(Symbol.symbol "int" * pos),
+                                 escape=ref false,
+                                 typ=SOME(Symbol.symbol "int", pos),
                                  init=hi,
                                  pos=pos})], 
-                body= A.WhileExp{test= A.IntExp(1)
-                                 body= A.SeqExp(
-                                   (body, pos)::
-                                   A.IfExp(
-                                     {test= A.OpExp(
-                                              A.GeOp,
-                                              A.VarExp(A.SimpleVar(var)),
-                                              A.VarExp(A.SimpleVar(Symbol.symbol "_limit"))), 
+                body= A.WhileExp{
+                    test=A.IntExp(1),
+                    body= A.SeqExp((body, pos)::
+                                   (A.IfExp(
+                                     {test= A.OpExp{
+                                       left= A.VarExp(A.SimpleVar(var, pos)),
+                                       oper= A.GeOp,
+                                       right= A.VarExp(A.SimpleVar(Symbol.symbol
+                                       "_limit", pos)),
+                                       pos=pos}, 
                                       then'= A.BreakExp(pos), 
-                                      pos= pos})::
-                                   A.AssignExp({var= A.simpleVar(var), 
-                                                exp= A.OpExp(A.PlusOp, 
-                                                             A.VarExp(A.simpleVar(var))u, 
-                                                             A.IntExp(1))
-                                                pos= pos})::
-                                   [])
-                                 pos= pos},
+                                      else'=NONE,
+                                      pos= pos}), pos)::
+                                   (A.AssignExp(
+                                       {var= A.SimpleVar(var,pos), 
+                                        exp= A.OpExp({oper=A.PlusOp, 
+                                                    right=A.VarExp(A.SimpleVar(var,pos)),
+                                                    left=A.IntExp(1),
+                                                    pos=pos}),
+                                        pos= pos}), pos)::
+                                   []),
+                   pos= pos},
                 pos= pos})
             in
-              trexp A.IfExp({test=A.OpExp(A.LeOp, lo, hi)
-                             then'=whileAbsyn
-                             else'=NONE
-                             pos=pos})
-            end
             (assertType(trexp hi, pos, T.INT);
              assertType(trexp lo, pos, T.INT);
              E.beginScope(env);
@@ -288,28 +292,41 @@ fun transExp(exp : A.exp, env, lev: R.level) =
              trexp body;
              E.closeLoop();
              E.endScope(env);
-             {exp= (), ty= T.UNIT})
+             trexp(A.IfExp({test=A.OpExp({
+                                oper=A.LeOp, 
+                                left=lo, 
+                                right=hi,
+                                pos=pos}),
+                             then'=whileAbsyn,
+                             else'=NONE,
+                             pos=pos})))
+            end
           | trexp (A.BreakExp(pos)) =
-            (if not(E.inLoop())
+            ((if not(E.inLoop())
              then M.error pos "invalid break expression outside of loop"
-             else ();
-            {exp= (), ty= T.BOTTOM})
+             else ());
+             {exp= (R.breakExp(break)), ty= T.BOTTOM})
           | trexp (A.ArrayExp{typ, size, init, pos}) =
-            (assertType(trexp size, pos, T.INT);
-             (case actual_ty(E.lookupTy(typ, env, pos), pos)
-               of T.ARRAY(ty, unique) =>
-                  (assertType(trexp init, pos, actual_ty(ty,pos));
-                   {exp= (), ty= T.ARRAY(ty, unique)})
+             case actual_ty(E.lookupTy(typ, env, pos), pos) of
+                  T.ARRAY(arrayty, unique) =>
+                    let val {exp=sizeexp, ty=sizety} = trexp size
+                        val {exp=initexp, ty=initty} = trexp init
+                    in
+                      (assertSubType(sizety, pos, T.INT);
+                       assertSubType(initty, pos, actual_ty(arrayty,pos));
+                       {exp=R.arrayExp(sizeexp, initexp), 
+                        ty=T.ARRAY(ty, unique)})
+                    end
                 | ty => 
                     (M.error pos ("undefined array type " ^ S.name typ);
-                     {exp= (), ty= T.BOTTOM})))
-          | trexp (A.LetExp{decs, body, pos}) =
+                     raise Fail "")
+           | trexp (A.LetExp{decs, body, pos}) =
             (E.beginScope(env);
              transDec(decs);
              trexp body;
              E.endScope(env);
              {exp= (), ty= T.BOTTOM})
-    and transDec(dec::restdecs, lev : R.level) : Tree.exp list=
+    and transDec(dec::restdecs) : Tree.exp list=
         let 
             (* code for processing recursive type declarations *)
             fun addFunDecs({name, params, result, body, pos}::fundecs) =
@@ -351,15 +368,16 @@ fun transExp(exp : A.exp, env, lev: R.level) =
                  val transBody = 
                    transExp(body, 
                             env, 
-                            R.newLevel({parent= level,
-                                        name= Temp.newlabel(),
-                                        (* TODO:  map to escapes *)
-                                        formals= params}))
+                            R.newLevel({parent=level,
+                                        name=Temp.newlabel(),
+                                        formals=
+                                          map(fn({name, escape, typ, pos})=> escape)
+                                          (params)}))
                in 
                  (assertType(transBody, resultTy);
                   (* saves the fragment containing the translated body and frame
                    * information *)
-                  R.procEntryExit(transBody, translate.newFrame({})))
+                  R.procEntryExit(level, transBody))
                end;
                E.endScope(env))
               | checkFunDecs([]) = ()
@@ -421,18 +439,17 @@ fun transExp(exp : A.exp, env, lev: R.level) =
                                                  (M.error pos "unqualified use of nil";
                                                   T.BOTTOM)
                                              | ty => ty
-                    and access = R.allocLocal(level)(escape)
-                    and entry = E.VarEntry{ty=ty, 
+                    val access = R.allocLocal(level)(escape)
+                    val entry = E.VarEntry{ty=ty, 
                                            access=access,
                                            writable=true}
-                    and tran = trexp init
+                    val tran = trexp init
                   in
                     (assertType(tran, pos, ty);
                      E.setVar(name, entry env);
                      R.initialize(R.simpleVar(access, level),
                                           tran)
-                                          cccccccddccc
-                  transDec(restdecs, lev : R.level))
+                  transDec(restdecs))
                    end
         end
         | transDec([]) = ()
