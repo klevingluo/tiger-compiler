@@ -1,7 +1,9 @@
 signature ENV =
 sig
   type ty
-  datatype enventry = VarEntry of {access: Translate.access, ty: ty}
+  datatype enventry = VarEntry of {access: Translate.access, 
+                                   ty: ty,
+                                   writable: bool}
                     | FunEntry of {level: Translate.level,
                                    label: Temp.label,
                                    formals: ty list, 
@@ -26,8 +28,13 @@ structure Env : ENV =
 struct
   type ty=Types.ty
 
-  datatype enventry = VarEntry of {ty: ty}
-                    | FunEntry of {formals: ty list, result: ty}
+  datatype enventry = VarEntry of {access: Translate.access, 
+                                   ty: ty,
+                                   writable: bool}
+                    | FunEntry of {level: Translate.level,
+                                   label: Temp.label,
+                                   formals: ty list, 
+                                   result: ty}
 
   type scope = (ty Symbol.table ref * enventry Symbol.table ref)
   type env = scope list ref

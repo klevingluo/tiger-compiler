@@ -26,10 +26,10 @@ struct
 
   and dec = FunctionDec of fundec list
                | VarDec of {name: symbol,
-                 escape: bool ref,
-                 typ: (symbol * pos) option,
-                 init: exp,
-                 pos: pos}
+                            escape: bool ref,
+                            typ: (symbol * pos) option,
+                            init: exp,
+                            pos: pos}
                | TypeDec of {name: symbol, ty: ty, pos: pos} list
 
   and ty = NameTy of symbol * pos

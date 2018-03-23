@@ -11,9 +11,15 @@ table.sml
 parse.sml
 absyn.sml
 prabsyn.sml
+temp.sig
+temp.sml
+tree.sml
 
 parser/tiger.lex
 parser/tiger.grm
+
+frame_analysis/frame.sig
+frame_analysis/mipsframe.sml
 
 types.sml
 env.sml
