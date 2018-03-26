@@ -26,20 +26,18 @@ fun isSubType(T.NIL, T.RECORD(fields, unique)) = true
   | isSubType(x,y) = x = y
 
 fun actual_ty(ty : T.ty, pos : int) =
-    case ty
-     of T.NAME(sym, tyref) => (* reference to an optional type *)
-        (case (!tyref)
-          of SOME(ty) => actual_ty(ty, pos)
-           | _ => (M.error pos ("undefined type " ^ S.name sym);
-                   T.BOTTOM))
-      | _ => ty
+  case ty of
+       T.NAME(sym, tyref) => (* reference to an optional type *)
+       (case (!tyref) of
+             SOME(ty) => actual_ty(ty, pos)
+           | _ => (M.error pos ("undefined type " ^ S.name sym); T.BOTTOM))
+     | _ => ty
 
 (* throws an error if an unexpected type is found*)
 fun assertType({exp : R.exp, ty : T.ty}, pos, expect) =
-    if isSubType(actual_ty(ty, pos), actual_ty(expect, pos))
-    then ()
-    else M.error pos ("expected type: " ^ T.type2string(expect) ^
-    " got type: " ^ T.type2string(ty))
+  if isSubType(actual_ty(ty, pos), actual_ty(expect, pos))
+  then ()
+  else M.error pos ("expected type: " ^ T.type2string(expect) ^ " got type: " ^ T.type2string(ty))
 
 (* throws an error if an unexpected type is found*)
 fun assertSubType(ty, pos, expect) =
@@ -61,30 +59,29 @@ fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int
 (* returns a list of the args in order of declaration *)
 (* TODO:  this is gonna be mad buggy, will need to fix *)
 fun checkFields(param::params, args, pos) =
-    let val sortedArgs = ref []
-        (* finds the arg corresponding to a single field, adds it to the sorted
-         * args, returns the remaining args*)
-        fun checkField((sym, ty), (argSym, {exp=argExp, ty=argTy}, argPos)::args) =
-            if Symbol.name sym = Symbol.name argSym
-            then (assertSubType(argTy, argPos, ty); 
-                  sortedArgs := argExp:: !sortedArgs;
-                  args)
-            else (argSym, {exp=argExp, ty=argTy}, argPos)::
-                 checkField((sym, ty), args)
+  let val sortedArgs = ref []
+  (* finds the arg corresponding to a single field, adds it to the sorted
+   * args, returns the remaining args*)
+    fun checkField((sym, ty), (argSym, {exp=argExp, ty=argTy}, argPos)::args) =
+      if Symbol.name sym = Symbol.name argSym
+      then (assertSubType(argTy, argPos, ty); 
+            sortedArgs := argExp:: !sortedArgs; 
+            args)
+      else (argSym, {exp=argExp, ty=argTy}, argPos) :: checkField((sym, ty), args)
           | checkField((sym, ty), []) = 
             (M.error pos ("missing record field: " ^ S.name sym); [])
-        fun checkFieldsHelper(param::params, arg::args, pos) =
-            checkFieldsHelper(params, checkField(param, arg::args), pos)
-          | checkFieldsHelper((sym, ty)::params, [], pos) =
+    fun checkFieldsHelper(param::params, arg::args, pos) =
+        checkFieldsHelper(params, checkField(param, arg::args), pos)
+      | checkFieldsHelper((sym, ty)::params, [], pos) =
               M.error pos ("missing argument(s) " ^ S.name sym)
-          | checkFieldsHelper([], (argSym, _, _)::args, pos) =
+      | checkFieldsHelper([], (argSym, _, _)::args, pos) =
               M.error pos ("extra argument(s) " ^ S.name argSym)
-          | checkFieldsHelper([], [], pos) = ()
+      | checkFieldsHelper([], [], pos) = ()
     in
       (checkFieldsHelper(params, checkField(param, args), pos);
        rev(!sortedArgs))
     end
-  | checkFields([], args, pos) = []
+ | checkFields([], args, pos) = []
 
 fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
   let 
@@ -101,7 +98,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                     (if not writable then write := false else ();
                      {exp = (R.simpleVar(access, level)), ty= actual_ty(ty, pos)})
                 | _ => (M.error pos ("undefined variable " ^ S.name id);
-                        raise Fail ""))
+                        raise Fail "undefined var"))
             | transVarHelp(A.FieldVar(var, id, pos)) =
                   let val {exp, ty} = transVarHelp(var)
                       fun findFieldType((sym, ty)::fields, id, acc, pos) =
@@ -110,13 +107,13 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                           else findFieldType(fields, id, acc + 1, pos)
                         | findFieldType([], id, acc, pos) =
                           (M.error pos ("undefined field " ^ S.name id);
-                           raise Fail "")
+                           raise Fail "undefined field")
                   in case actual_ty(ty, pos)
                      of T.RECORD(fields, unique) => 
                           (case findFieldType(fields, id, 0, pos) of
                                (ind, ty) => {exp=R.fieldVar(exp, ind), ty=ty})
                       | _ => (M.error pos ("no record type " ^ T.type2string(ty));
-                          raise Fail "")
+                          raise Fail "not a record type")
                   end
             | transVarHelp(A.SubscriptVar(var, subexp, pos)) =
                    let val {exp, ty} = transVarHelp(var)
@@ -126,7 +123,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                            {exp= R.subscriptVar(exp, indexp), ty= ty}
                          | _ => 
                            (M.error pos ("no array type for " ^ T.type2string(ty));
-                           raise Fail "")
+                           raise Fail "not an array type")
                    end
           val expt = transVarHelp(var)
         in
@@ -327,6 +324,9 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
              trexp body;
              E.endScope(env);
              {exp= R.intExp(3), ty= T.BOTTOM})
+    (* TODO: creates a new type and value environment, and returns a translate
+     * exp.  This also reserves more space in the current frame for every
+     * variable. and saves a function fragment for each function body.*)
     and transDec(dec::restdecs) : R.exp list =
         let 
             (* code for processing recursive type declarations *)
@@ -436,7 +436,8 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    checkTyDecs(tydecs);
                    ())
           in 
-            case dec of
+            List.revAppend(rev
+            (case dec of
                   A.FunctionDec(decs: A.fundec list) => (writeFunDecs(decs);[])
                 | A.TypeDec(decs) => (writeTyDecs(decs);[])
                 | A.VarDec{name, escape, typ, init, pos} =>
@@ -458,8 +459,11 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                   in
                     (assertSubType(initty, pos, ty);
                      E.setVar(name, entry, env);
+                     (* allocates space in the current frame and also creates
+                      *)
                      [R.initialize(R.simpleVar(access, level), initexp)])
-                  end
+                  end),
+                  transDec(restdecs))
           end
         | transDec([]) = []
   in trexp(exp)
