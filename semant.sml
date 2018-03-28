@@ -182,7 +182,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    {exp=(R.callExp(label, argexps)), ty= result})
                 end
             | _ => (M.error pos ("undefined function " ^ S.name func);
-                    raise Fail ""))
+                    raise Fail "undefined function"))
         | trexp (A.RecordExp{fields = args, typ = typ, pos = pos}) =
           let val recdec = actual_ty(E.lookupTy(typ, env, pos), pos)
               fun trfield(sym, exp, pos) = (sym, trexp(exp), pos)
@@ -195,21 +195,24 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    {exp=(R.recordExp(checkFields(params, fields, pos))), 
                     ty=recdec})
                 | _ => (M.error pos ("undefined record " ^ S.name typ);
-                        raise Fail ""))
+                        raise Fail "undefined record"))
           end
         | trexp (A.SeqExp(exps)) =
-          let val exps = map(fn (exp, pos) => trexp(exp))(exps)
-              val bodies = map(fn ({exp= exp, ty= ty}) => exp)(exps)
-          in case List.last(exps)
-              of {exp=lastexp, ty=ty} =>
-                 {exp=R.seqExp(bodies), ty=ty}
-          end
+          if (List.null exps)
+          then {exp=R.unitExp(), ty=T.UNIT}
+          else
+            let val transExps = map(fn (exp, pos) => trexp(exp))(exps)
+                val bodies = map(fn ({exp= exp, ty= ty}) => exp)(transExps)
+            in case List.last(transExps)
+                 of {exp=_, ty=ty} => {exp=R.seqExp(bodies), ty=ty}
+            end
         | trexp (A.AssignExp{var, exp, pos}) =
           let val ({exp=varexp, ty=varty}, writable) = transVar(var)
               val {exp=valexp, ty=valty} = trexp exp
           in
             (if (not writable)
-             then (M.error pos ("writing to read only variable: "); raise Fail "")
+             then (M.error pos ("writing to read only variable: "); raise Fail
+             "read only var")
              else
              (assertSubType(valty, pos, varty);
              {exp= (R.assignExp(varexp, valexp)), ty= T.UNIT}))
@@ -234,7 +237,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
            end)
           | trexp (A.WhileExp{test, body, pos}) =
               let val {exp=testexp, ty=testty} = trexp test
-                  val {exp=bodyexp, ty=bodyty} = trexp test
+                  val {exp=bodyexp, ty=bodyty} = trexp body
                   val donelab = Temp.newlabel()
                   val whileexp = R.whileExp(testexp, bodyexp, donelab)
               in
@@ -242,8 +245,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                  E.openLoop();
                  assertSubType(bodyty, pos, T.UNIT);
                  E.closeLoop();
-                 {exp= whileexp, 
-                  ty= T.UNIT})
+                 {exp= whileexp, ty= T.UNIT})
               end
           | trexp (A.ForExp{var, escape, lo, hi, body, pos}) =
             let
@@ -260,7 +262,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                                  pos=pos})], 
                 body= A.WhileExp{
                     test=A.IntExp(1),
-                    body= A.SeqExp((body, pos)::
+                    body=A.SeqExp((body, pos)::
                                    (A.IfExp(
                                      {test= A.OpExp{
                                        left= A.VarExp(A.SimpleVar(var, pos)),
@@ -281,23 +283,24 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                                    []),
                    pos= pos},
                 pos= pos})
+              val res = ref {exp= R.unitExp(), ty= T.UNIT}
             in
-            (assertType(trexp hi, pos, T.INT);
-             assertType(trexp lo, pos, T.INT);
-             E.beginScope(env);
-             E.setTy(var, T.INT, env);
-             E.openLoop();
-             trexp body;
-             E.closeLoop();
-             E.endScope(env);
-             trexp(A.IfExp({test=A.OpExp({
-                                oper=A.LeOp, 
-                                left=lo, 
-                                right=hi,
-                                pos=pos}),
-                             then'=whileAbsyn,
-                             else'=NONE,
-                             pos=pos})))
+              (assertType(trexp hi, pos, T.INT);
+               assertType(trexp lo, pos, T.INT);
+               E.beginScope(env);
+               E.setTy(var, T.INT, env);
+               E.openLoop();
+               res := trexp(A.IfExp({test=A.OpExp({
+                   oper=A.LeOp, 
+                   left=lo, 
+                   right=hi,
+                   pos=pos}),
+                   then'=whileAbsyn,
+                   else'=NONE,
+                   pos=pos}));
+               E.closeLoop();
+               E.endScope(env);
+               !res)
             end
           | trexp (A.BreakExp(pos)) =
             ((if not(E.inLoop())
@@ -317,13 +320,19 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                     end
                 | ty => 
                     (M.error pos ("undefined array type " ^ S.name typ);
-                     raise Fail ""))
+                     raise Fail "undefined array type"))
           | trexp (A.LetExp{decs, body, pos}) =
+          let
+            val res = ref {exp= R.nilExp(), ty= T.NIL}
+            val inits = ref []
+          in
             (E.beginScope(env);
-             transDec(decs);
-             trexp body;
+             inits := transDec(decs);
+             res := (case trexp(body) of 
+                         {exp=exp, ty=ty} => {exp=R.letExp(!inits,exp), ty=ty});
              E.endScope(env);
-             {exp= R.intExp(3), ty= T.BOTTOM})
+             !res)
+          end
     (* TODO: creates a new type and value environment, and returns a translate
      * exp.  This also reserves more space in the current frame for every
      * variable. and saves a function fragment for each function body.*)
@@ -475,7 +484,7 @@ fun transProg(exp : A.exp) =
       val baselvl = R.outermost
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
     in 
-      exp
+      (Translate.printtree(exp); exp)
     end
 
 end (* structure Semant *)

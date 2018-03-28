@@ -42,12 +42,12 @@ datatype stm = SEQ of stm * stm
              | EXP of exp
 
       and exp = BINOP of binop * exp * exp
-             | MEM of exp
-             | TEMP of Temp.temp
-             | ESEQ of stm * exp
-             | NAME of label
-             | CONST of int
-             | CALL of exp * exp list
+              | MEM of exp
+              | TEMP of Temp.temp
+              | ESEQ of stm * exp
+              | NAME of label
+              | CONST of int
+              | CALL of exp * exp list
 
       and binop = PLUS | MINUS | MUL | DIV 
                 | AND | OR | LSHIFT | RSHIFT | ARSHIFT | XOR
