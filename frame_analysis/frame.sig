@@ -12,6 +12,8 @@ sig
 
   val wordSize : int
 
+  val argGetter : unit -> unit -> Temp.temp
+
   (* an access and a expression that evaluates to the frame that the variable
    * lives in, returns the mem address of the variable.*)
   val exp : access -> Tree.exp -> Tree.exp

@@ -243,6 +243,23 @@ fun codegen(frame, stm) =
                                   src=[],
                                   dst=[r],
                                   jump=NONE}))
+          | munchExp(T.CALL(T.NAME f, args)) =
+            result(fn(r) =>
+                      if (List.length(args) > 4)
+                      then
+                        raise Fail "too many function args"
+                      else
+                        let
+                          val getter = F.argGetter()
+                        in
+                          (map(fn(arg) => 
+                             munchStm(T.MOVE(T.TEMP(getter()),arg)))
+                             (args);
+                           emit(A.OPER{assem= "jal " ^ sym f ^ "\n",
+                                       src=[],
+                                       dst=[],
+                                       jump=SOME([f])}))
+                        end)
 
     in munchStm(stm);
        rev(!ilist)

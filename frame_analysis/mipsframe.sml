@@ -65,6 +65,12 @@ struct
     location : Temp.label
   }
 
+  fun argGetter() =
+    let val num = ref ~1
+    in
+      fn () => (num := !num + 1; List.nth(argregs, !num))
+    end
+
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
 
