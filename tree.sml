@@ -1,5 +1,5 @@
-signature TREE = 
-sig 
+signature TREE =
+sig
   type label = Temp.label
   type size
 
@@ -18,17 +18,17 @@ datatype stm = SEQ of stm * stm
              | CONST of int
              | CALL of exp * exp list
 
-     and binop = PLUS | MINUS | MUL | DIV 
+     and binop = PLUS | MINUS | MUL | DIV
                | AND | OR | LSHIFT | RSHIFT | ARSHIFT | XOR
 
-     and relop = EQ | NE | LT | GT | LE | GE 
+     and relop = EQ | NE | LT | GT | LE | GE
                | ULT | ULE | UGT | UGE
 
   val notRel : relop -> relop
   val commute: relop -> relop
 end
 
-structure Tree : TREE = 
+structure Tree : TREE =
 struct
   type label=Temp.label
   type size = int
@@ -49,23 +49,22 @@ datatype stm = SEQ of stm * stm
               | CONST of int
               | CALL of exp * exp list
 
-      and binop = PLUS | MINUS | MUL | DIV 
+      and binop = PLUS | MINUS | MUL | DIV
                 | AND | OR | LSHIFT | RSHIFT | ARSHIFT | XOR
 
-      and relop = EQ | NE | LT | GT | LE | GE 
+      and relop = EQ | NE | LT | GT | LE | GE
                 | ULT | ULE | UGT | UGE
 
   (* TODO: fix these, this is wrong *)
   fun notRel(EQ) = NE
     | notRel(NE) = EQ
-    | notRel(LT) = GE 
+    | notRel(LT) = GE
     | notRel(GE) = LT
     | notRel(LE) = GT
-    | notRel(GT) = LE 
-    | notRel(ULT) = UGE 
+    | notRel(GT) = LE
+    | notRel(ULT) = UGE
     | notRel(UGE) = ULT
     | notRel(ULE) = UGT
-    | notRel(UGT) = ULE 
+    | notRel(UGT) = ULE
   fun commute(id) = id
 end
-
