@@ -1,2 +1,0 @@
-we make a list of the functions with all of their signatures, then typecheck
-their bodies.

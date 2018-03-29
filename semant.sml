@@ -484,7 +484,8 @@ fun transProg(exp : A.exp) =
       val baselvl = R.outermost
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
     in 
-      (Translate.printtree(exp); exp)
+      exp
+      (* (R.printtree(exp); exp) *)
     end
 
 end (* structure Semant *)
