@@ -26,3 +26,8 @@ types.sml
 env.sml
 translate.sml
 semant.sml
+
+assem.sml
+canon.sml
+codegen.sig
+mipsgen.sml
