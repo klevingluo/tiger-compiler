@@ -109,7 +109,8 @@ fun codegen(frame, stm) =
 
 
         (* munchExp: T.exp -> Temp.temp *)
-        and munchExp(T.MEM(T.BINOP(T.PLUS, e1, T.CONST(i)))) =
+        and munchExp(T.ESEQ(s1, e1)) = (munchStm(s1); munchExp(e1))
+         |  munchExp(T.MEM(T.BINOP(T.PLUS, e1, T.CONST(i)))) =
             result(fn(r) =>
                       emit(A.OPER{assem= "lw `d0, " ^ int(i) ^ "(`s0)\n",
                                   src=[munchExp(e1)],
@@ -199,7 +200,49 @@ fun codegen(frame, stm) =
                                   src=[munchExp(e1), munchExp(e2)],
                                   dst=[r],
                                   jump=NONE}))
+          | munchExp(T.BINOP(T.AND, e1, T.CONST(i))) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "andi `d0, `s0, " ^ int(i) ^ "\n",
+                                  src=[munchExp(e1)],
+                                  dst=[r],
+                                  jump=NONE}))
+          | munchExp(T.BINOP(T.AND, T.CONST(i), e1)) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "andi `d0, `s0, " ^ int(i) ^ "\n",
+                                  src=[munchExp(e1)],
+                                  dst=[r],
+                                  jump=NONE}))
+          | munchExp(T.BINOP(T.AND, e1, e2)) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "and `d0, `s0, `s1\n",
+                                  src=[munchExp(e1), munchExp(e2)],
+                                  dst=[r],
+                                  jump=NONE}))
+          | munchExp(T.BINOP(T.OR, e1, T.CONST(i))) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "ori `d0, `s0, " ^ int(i) ^ "\n",
+                                  src=[munchExp(e1)],
+                                  dst=[r],
+                                  jump=NONE}))
+          | munchExp(T.BINOP(T.OR, T.CONST(i), e1)) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "ori `d0, `s0, " ^ int(i) ^ "\n",
+                                  src=[munchExp(e1)],
+                                  dst=[r],
+                                  jump=NONE}))
+          | munchExp(T.BINOP(T.OR, e1, e2)) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "or `d0, `s0, `s1\n",
+                                  src=[munchExp(e1), munchExp(e2)],
+                                  dst=[r],
+                                  jump=NONE}))
           | munchExp(T.TEMP(t)) = t
+          | munchExp(T.NAME(l1)) =
+            result(fn(r) =>
+                      emit(A.OPER{assem= "la `d0, " ^ sym(l1) ^ "\n",
+                                  src=[],
+                                  dst=[r],
+                                  jump=NONE}))
 
     in munchStm(stm);
        rev(!ilist)
