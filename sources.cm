@@ -31,3 +31,10 @@ assem.sml
 canon.sml
 codegen.sig
 mipsgen.sml
+
+graph.sig
+graph.sml
+flowgraph.sml
+liveness.sml
+regalloc.sml
+color.sml
