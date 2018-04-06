@@ -109,7 +109,7 @@ struct
                                    G.Table.enter(outs, node, newOuts)))
                         end
 
-                    val (newIns, newOuts) = foldl reCompute (ins, outs) fnodes
+                    val (newIns, newOuts) = foldl reCompute (ins, outs) (List.rev fnodes)
                 in
                     if !updated
                     then iterate(newIns, newOuts)
