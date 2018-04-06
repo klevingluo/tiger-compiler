@@ -2,7 +2,7 @@ signature GRAPH =
 sig
     type graph
     type node
-    
+
     val nodes: graph -> node list
     val succ: node -> node list
     val pred: node -> node list
@@ -19,5 +19,4 @@ sig
     sharing type Table.key = node
 
     val nodename: node->string  (* for debugging only *)
-
 end
