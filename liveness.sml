@@ -16,8 +16,6 @@ sig
         Flow.flowgraph ->
         igraph * (Flow.Graph.node -> Temp.temp list)
 
-<<<<<<< HEAD
-=======
     val show : igraph -> unit
 end
 
@@ -200,5 +198,4 @@ struct
 
     (* show: igraph -> unit *)
     fun show(igraph) = ()
->>>>>>> 79dfedecb5f5d319a5235c2a5c00328032b0ade8
 end
