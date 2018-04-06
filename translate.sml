@@ -32,6 +32,7 @@ sig
 
   val procEntryExit : level * exp -> unit
   val initialize : exp * exp -> exp
+  val getResult : unit -> MipsFrame.frag list
 
   (* instructions for translating expressions*)
   val nilExp    : unit -> exp

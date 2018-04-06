@@ -57,7 +57,6 @@ fun checkArgs(param::params : T.ty list, {exp, ty}::args : expty list, pos : int
 (* typechecks a list of arguments for constructing a record field *)
 (* params are the types desired, and args are the types that we have *)
 (* returns a list of the args in order of declaration *)
-(* TODO:  this is gonna be mad buggy, will need to fix *)
 fun checkFields(param::params, args, pos) =
   let val sortedArgs = ref []
   (* finds the arg corresponding to a single field, adds it to the sorted
@@ -340,11 +339,14 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
         let 
             (* code for processing recursive type declarations *)
             fun addFunDecs({name, params, result, body, pos}::fundecs) =
-                    let  val resultTy =
-                             case result
-                              of SOME((sym, pos)) => findTy(sym, pos)
-                               | _ => T.UNIT
-                         val paramTys = map(fn ({name, escape, typ, pos}) => findTy(typ, pos))(params)
+                    let  
+                      val resultTy =
+                             case result of
+                                  SOME((sym, pos)) => findTy(sym, pos)
+                                | _ => T.UNIT
+                      val paramTys = map(fn ({name, escape, typ, pos}) => 
+                                                findTy(typ, pos))
+                                         (params)
                     in 
                        (E.setVar(name, 
                                  E.FunEntry{formals=paramTys, 
@@ -478,13 +480,22 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
   in trexp(exp)
   end
 
+fun makeGraph(frag) =
+  case frag of 
+       MipsFrame.PROC{body, frame} => 
+         (* MakeGraph.instrs2graph(MipsGen.codegen(frame, body)) *)
+         map(fn x =>
+           print(Assem.format(Temp.makestring)(x)))(MipsGen.codegen(frame, body))
+     | MipsFrame.STRING(lab, str) => [()]
+
 fun transProg(exp : A.exp) =
     let 
       val env = Env.base_env()
       val baselvl = R.outermost
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
     in 
-      exp
+      (map(makeGraph)(R.getResult());
+       exp)
       (* (R.printtree(exp); exp) *)
     end
 
