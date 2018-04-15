@@ -137,7 +137,7 @@ struct
                              else addMoves(moves, nodes)
                            (* shouldn't hit this, but depends on impl of flow graph *)
                            | NONE => addMoves(moves, nodes))
-                      | addMoves(moves, [])  = []
+                      | addMoves(moves, [])  = moves
                 in
                     addMoves(moves, fnodes)
                 end

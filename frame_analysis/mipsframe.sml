@@ -3,6 +3,8 @@ struct
   structure T = Tree
   val wordSize = 8
 
+  type register = string
+
   val FP = Temp.newtemp()
   val RV = Temp.newtemp()
 
