@@ -15,6 +15,7 @@ temp.sig
 temp.sml
 tree.sml
 printtree.sml
+findescape.sml
 
 parser/tiger.lex
 parser/tiger.grm

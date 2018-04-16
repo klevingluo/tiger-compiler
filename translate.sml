@@ -155,17 +155,18 @@ struct
       fun getFrame(accref, (parent, frame, frmref)) =
         if accref = frmref
         then T.TEMP(Frame.FP)
-        else case level of
-                  LEV(lev, frm, frmr) => T.MEM(
+        else case parent of
+                  LEV(lev, frm, frmr) => 
+                                          T.MEM(
                                            T.BINOP(
-                                           T.PLUS,
-                                           T.CONST 1,
-                                         getFrame(accref, (lev,frm,frmr))))
-                | BASE => T.CONST 3
+                                            T.PLUS,
+                                            T.CONST 1,
+                                            getFrame(accref, (lev,frm,frmr))))
+                | BASE => raise Fail ("variable not found in highest scope")
                 (* TODO: fix this *)
          (* our typechecker guarantees this will be found*)
     in
-      Ex(Frame.exp(acc)(getFrame(accref, (parent, frame, frmref))))
+      Ex(Frame.exp(acc)(getFrame(accref, (level, frame, frmref))))
     end
     | simpleVar(_, _) = raise Fail "nonexaustive match"
 
@@ -358,6 +359,7 @@ struct
     end
 
   (* handles function calls *)
+  (* TODO: make this do the precall stuff *)
   fun callExp(func, args) = 
     Ex(T.CALL(T.NAME func, map(unEx)(args)))
 
@@ -388,12 +390,13 @@ struct
              T.TEMP r))
     end
 
-  (* function calls *)
+  (* adds function entry and exit procedures to function body and saves the
+   * fragment to the list of fragments *)
   fun procEntryExit(LEV(lev, frm, frmref), exp) : unit =
     let
       val lab= Temp.newlabel
     in
-      (frags := Frame.PROC({body=unNx(exp), frame=frm}):: !frags;
+      (frags := Frame.PROC({body=Frame.procEntryExit1(frm, unNx(exp)), frame=frm}):: !frags;
        ())
     end
     | procEntryExit(BASE, exp) : unit = ()

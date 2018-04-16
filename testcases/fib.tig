@@ -1,0 +1,11 @@
+let
+  function fib(a:int,n:int): int =
+    let
+      function fib2(b: int): int =
+        n
+    in
+      fib2(3)
+    end
+in
+  fib(3,4)
+end

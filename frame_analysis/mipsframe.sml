@@ -74,7 +74,6 @@ struct
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
 
-
   fun newFrame({name, formals}) =
     {
       (* will need to copy the stack pointer to the frame pointer, the move the
@@ -91,8 +90,7 @@ struct
       (* mips stuff in the shift bit *)
     }
 
-  val name : frame -> Temp.label = fn df =>Temp.newlabel()
-  (* this is wrong btw *)
+  fun name({formals, shift, numlocals, location}) = location
 
   (* the list of where the formals for this call will be kept at run time *)
   val formals : frame -> access list = fn df => []
@@ -101,8 +99,8 @@ struct
     (numlocals := !numlocals + 1;
      fn esc =>
        if esc
-       then InReg(Temp.newtemp())
-       else InFrame(!numlocals(* new local variable*)))
+       then InFrame(!numlocals(* new local variable*))
+       else InReg(Temp.newtemp()))
 
   fun exp(acc)=
     fn fp =>
@@ -113,7 +111,9 @@ struct
   fun externalCall(s, args) =
     T.CALL(T.NAME(Temp.namedlabel s), args)
 
-  (* just a stub for now *)
-  fun procEntryExit1(frame, body) = body
+  fun procEntryExit1(frame, body) = 
+    case body of
+         T.EXP(ex) => T.MOVE(T.TEMP RV, ex)
+       | _ => body
 
 end

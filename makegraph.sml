@@ -5,26 +5,6 @@ sig
     val empty: unit -> Flow.flowgraph * Flow.Graph.node list
 end
 
-(*  datatype instr = OPER  of {assem: string,
-                             dst: temp list,
-                             src: temp list,
-                             jump: label list option}
-                   (* a jump label *)
-                 | LABEL of {assem: string,
-                             lab: Temp.label}
-                   (* moves data, we try to optimize to delete these
-                    * instructions *)
-                 | MOVE  of {assem: string,
-                             dst: temp,
-                             src: temp} *)
-(* fun foldr (f:'a*'b->'b) (accum:'b) (l:'a list):'b =  *)
-
-(*
-   val empty : 'a table
-   val enter : 'a table * key * 'a -> 'a table
-   val look  : 'a table * key -> 'a option
-*)
-
 structure MakeGraph : MAKEGRAPH =
 struct
 

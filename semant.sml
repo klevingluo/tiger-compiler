@@ -26,7 +26,7 @@ fun isSubType(T.NIL, T.RECORD(fields, unique)) = true
   | isSubType(x,y) = x = y
 
 fun actual_ty(ty : T.ty, pos : int) =
-  case ty of
+   case ty of
        T.NAME(sym, tyref) => (* reference to an optional type *)
        (case (!tyref) of
              SOME(ty) => actual_ty(ty, pos)
@@ -376,7 +376,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                        E.VarEntry{ty=findTy(typ, pos), 
                                   (* we don't think this matters, since this is
                                    * only for typechecking *)
-                                  access=(R.allocLocal(level)(false)),
+                                  access=R.allocLocal(level)(!escape),
                                   writable=true}, 
                                   env))(params);
                let  
@@ -492,11 +492,12 @@ fun transProg(exp : A.exp) =
     let 
       val env = Env.base_env()
       val baselvl = R.outermost
+      val _ = FindEscape.findEscape(exp)
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
     in 
       (map(makeGraph)(R.getResult());
+       R.printtree(exp); 
        exp)
-      (* (R.printtree(exp); exp) *)
     end
 
 end (* structure Semant *)
