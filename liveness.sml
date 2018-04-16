@@ -137,7 +137,7 @@ struct
                              else addMoves(moves, nodes)
                            (* shouldn't hit this, but depends on impl of flow graph *)
                            | NONE => addMoves(moves, nodes))
-                      | addMoves(moves, [])  = []
+                      | addMoves(moves, [])  = moves
                 in
                     addMoves(moves, fnodes)
                 end
@@ -182,18 +182,45 @@ struct
             fun gengtemp(tempmap) =
                 fn(n : G.node) => (valOf(F.Graph.Table.look(tempmap, n)))
 
+            val tnode = gentnode(temp2node)
+            val gtemp = gengtemp(node2temp)
+
             (* The table mapping of each flow-graph node to the set of temps that are
                live-out at that node *)
             val node2liveouts =
              fn(node : Flow.Graph.node) =>
                 (S.listItems(valOf(F.Graph.Table.look(liveOuts, node))))
 
+            (* Plot the interference egdes *)
+            (* At non-move instruction n defining a with out[n] = [b1..bj], add
+               interference edges [(a,b1)..(a,bj)] *)
+            fun plotEdges(node::nodes) =
+                let val defs = valOf(G.Table.look(def, node))
+                    val outs = S.listItems(valOf(G.Table.look(liveOuts, node)))
+                    (* plotDefToOuts: node * node list -> unit *)
+                    fun plotDefToOuts(def', out'::outs') =
+                        let val from = tnode(def')
+                            val to = tnode(out')
+                        in (G.mk_edge({from= from, to= to});
+                            plotDefToOuts(def', outs'))
+                        end
+                      | plotDefToOuts(def', []) = ()
+                    (* plotDefsToOuts: node list * node list -> unit *)
+                    fun plotDefsToOuts(def'::defs', outs') =
+                        (plotDefToOuts(def', outs');
+                         plotDefsToOuts(defs', outs'))
+                      | plotDefsToOuts([], outs') = ()
+                in plotDefsToOuts(defs, outs)
+                end
+              | plotEdges([]) = ()
+
         in
-            (IGRAPH{graph= igraph,
-                    tnode= gentnode(temp2node),
-                    gtemp= gengtemp(node2temp),
-                    moves= aggregateMoves()},
-             node2liveouts)
+            (plotEdges(fnodes);
+             (IGRAPH{graph= igraph,
+                     tnode= tnode,
+                     gtemp= gtemp,
+                     moves= aggregateMoves()},
+              node2liveouts))
         end
 
     (* show: igraph -> unit *)
