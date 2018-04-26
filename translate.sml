@@ -34,6 +34,7 @@ sig
   val initialize : exp * exp -> exp
   val getResult : unit -> MipsFrame.frag list
   val canonicalize : exp -> exp
+  val topFrag : exp -> MipsFrame.frag
 
   (* instructions for translating expressions*)
   val nilExp    : unit -> exp
@@ -141,13 +142,22 @@ struct
         Frame.newFrame({name=name, formals=true::formals}),
         ref ())
 
+  val topName = Temp.newlabel()
   (* this is the level that housees the program.  "library" functions are
    * declared at this level, which does not contain a frame, nor a parameter
    * list *)
   val outermost = newLevel({parent=BASE,
-                            name=Temp.newlabel(),
+                            name=topName,
                             formals=[]})
 
+  (* makes a top level fragment *)
+  fun topFrag(exp) = 
+    let 
+      val topFrame = MipsFrame.newFrame({formals=[], 
+                                         name=topName})
+    in
+      MipsFrame.PROC({body=(unNx exp), frame=topFrame})
+    end
   (* called whenever a local variable is declared *)
   fun allocLocal(LEV(parent, frm, frmref) : level)(esc) =
       (LEV(parent, frm, frmref), Frame.allocLocal(frm)(esc))

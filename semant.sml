@@ -3,7 +3,7 @@ sig
   type env
   type expty
 
-  val transProg : Absyn.exp -> Translate.exp
+  val transProg : Absyn.exp -> MipsFrame.frag list
 end
 
 structure Semant : SEMANT =
@@ -217,11 +217,11 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
              {exp= (R.assignExp(varexp, valexp)), ty= T.UNIT}))
           end
         | trexp (A.IfExp{test, then', else', pos}) =
-          (assertType(trexp test, pos, T.INT);
            let val {exp=testexp, ty=testy} = trexp test
                val {exp=thenexp, ty=thenty} = trexp then'
            in 
-             (case else' of
+             (assertSubType(testy, pos, T.INT);
+              case else' of
                    SOME(exp) => 
                      let val {exp=elseexp, ty=elsety} = trexp exp
                      in
@@ -233,7 +233,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                      (assertSubType(thenty, pos, T.UNIT);
                       {exp=R.ifExp(testexp, thenexp, NONE),
                        ty=T.UNIT}))
-           end)
+           end
           | trexp (A.WhileExp{test, body, pos}) =
               let val {exp=testexp, ty=testty} = trexp test
                   val {exp=bodyexp, ty=bodyty} = trexp body
@@ -321,17 +321,17 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                     (M.error pos ("undefined array type " ^ S.name typ);
                      raise Fail "undefined array type"))
           | trexp (A.LetExp{decs, body, pos}) =
-          let
-            val res = ref {exp= R.nilExp(), ty= T.NIL}
-            val inits = ref []
-          in
-            (E.beginScope(env);
-             inits := transDec(decs);
-             res := (case trexp(body) of 
-                         {exp=exp, ty=ty} => {exp=R.letExp(!inits,exp), ty=ty});
-             E.endScope(env);
-             !res)
-          end
+            let
+              val res = ref {exp= R.nilExp(), ty= T.NIL}
+              val inits = ref []
+            in
+              (E.beginScope(env);
+               inits := transDec(decs);
+               res := (case trexp(body) of 
+                           {exp=exp, ty=ty} => {exp=R.letExp(!inits,exp), ty=ty});
+               E.endScope(env);
+               !res)
+            end
     (* TODO: creates a new type and value environment, and returns a translate
      * exp.  This also reserves more space in the current frame for every
      * variable. and saves a function fragment for each function body.*)
@@ -407,7 +407,8 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                    * information *)
                   R.procEntryExit(level, bodyexp))
                end;
-               E.endScope(env))
+               E.endScope(env);
+               checkFunDecs(fundecs))
               | checkFunDecs([]) = ()
             fun writeFunDecs(decs: A.fundec list) =
                   (addFunDecs(decs: A.fundec list);
@@ -461,11 +462,12 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                 | A.TypeDec(decs) => (writeTyDecs(decs);[])
                 | A.VarDec{name, escape, typ, init, pos} =>
                   let
+                    val {exp=initexp, ty=initty} = trexp init
                     val ty = (case typ
                                (* the type is declared, so we assign it and check *)
                                of SOME((sym, pos)) => E.lookupTy(sym, env, pos)
                                (* no type is declared, we infer based on the value *)
-                                | NONE => case getTy(trexp init)
+                                | NONE => case initty
                                             of T.NIL =>
                                                  (M.error pos "unqualified use of nil";
                                                   T.BOTTOM)
@@ -474,7 +476,6 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                     val entry = E.VarEntry{ty=ty, 
                                            access=access,
                                            writable=true}
-                    val {exp=initexp, ty=initty} = trexp init
                   in
                     (assertSubType(initty, pos, ty);
                      E.setVar(name, entry, env);
@@ -487,14 +488,6 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
   in trexp(exp)
   end
 
-fun makeGraph(frag) =
-  case frag of 
-       MipsFrame.PROC{body, frame} => 
-         (* MakeGraph.instrs2graph(MipsGen.codegen(frame, body)) *)
-         map(fn x =>
-           print(Assem.format(Temp.makestring)(x)))(MipsGen.codegen(frame, body))
-     | MipsFrame.STRING(lab, str) => [()]
-
 fun transProg(exp : A.exp) =
     let 
       val env = Env.base_env()
@@ -503,8 +496,7 @@ fun transProg(exp : A.exp) =
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
       val exp = R.canonicalize(exp)
     in 
-      (map(makeGraph)(R.getResult());
-       exp)
+      R.topFrag(exp)::R.getResult()
     end
 
 end (* structure Semant *)

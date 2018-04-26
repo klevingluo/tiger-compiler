@@ -1,5 +1,7 @@
 let
-  function fib(n:int): int = 3
+  function fib(n:int):int = n + 3
+  function fib2(n:int):int = n + 3
 in
+  fib2(4);
   fib(4)
 end

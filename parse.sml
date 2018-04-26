@@ -15,10 +15,8 @@ struct
       fun parseerror(s,p1,p2) = ErrorMsg.error p1 s
       val lexer = LrParser.Stream.streamify (Lex.makeLexer get)
       val (absyn, _) = TigerP.parse(30,lexer,parseerror,())
-      val exp = Semant.transProg(absyn)
     in 
       TextIO.closeIn file;
-      Semant.transProg(absyn);
       absyn
     end handle LrParser.ParseError => raise ErrorMsg.Error
 end
