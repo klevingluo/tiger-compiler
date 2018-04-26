@@ -40,3 +40,5 @@ liveness.sml
 makegraph.sml
 
 color.sml
+hashset.sml
+regAlloc.sml

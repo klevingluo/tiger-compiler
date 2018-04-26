@@ -28,4 +28,5 @@ sig
   val externalCall: string * Tree.exp list -> Tree.exp
 
   val procEntryExit1 : frame * Tree.stm -> Tree.stm
+  val procEntryExit3 : frame * Tree.stm -> Tree.stm
 end

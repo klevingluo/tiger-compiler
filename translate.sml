@@ -33,6 +33,7 @@ sig
   val procEntryExit : level * exp -> unit
   val initialize : exp * exp -> exp
   val getResult : unit -> MipsFrame.frag list
+  val canonicalize : exp -> exp
 
   (* instructions for translating expressions*)
   val nilExp    : unit -> exp
@@ -40,7 +41,7 @@ sig
   val unitExp   : unit -> exp
   val intExp    : int -> exp
   val stringExp : string -> exp
-  val callExp   : Temp.label * exp list -> exp
+  val callExp   : level * level * Temp.label * exp list -> exp
   val opExp     : exp * Absyn.oper * exp -> exp
   val recordExp : exp list -> exp
   val seqExp    : exp list -> exp
@@ -127,9 +128,12 @@ struct
     | unCx(Ex (T.CONST 1)) = (fn (t,f) => T.JUMP(T.NAME t, [t]))
     | unCx(Ex e) = (fn (t, f) => T.CJUMP(T.EQ, T.CONST 1, e, t, f))
     (* this should never happen in a valid tiger program *)
-    | unCx(Nx s) = (fn (t, f) => T.JUMP(T.NAME f, [f]))
+    | unCx(Nx s) = raise Fail "impossible error"
     | unCx(Cx genstm) = genstm
 
+  fun canonicalize(stm) = Nx(seq(Canon.traceSchedule(
+                                  Canon.basicBlocks(
+                                   Canon.linearize(unNx stm)))))
 
   (* called during the translation of declarations *)
   fun newLevel({parent, name, formals}) =
@@ -360,8 +364,56 @@ struct
 
   (* handles function calls *)
   (* TODO: make this do the precall stuff *)
-  fun callExp(func, args) = 
-    Ex(T.CALL(T.NAME func, map(unEx)(args)))
+  fun callExp(LEV(parent, funfrm, funref), 
+              LEV(level, accfrm, accref), 
+              func, 
+              args) = 
+        let
+          (* follows static links up the chain *)
+          fun followLinks(LEV(parent, funfrm, funref), 
+                          LEV(level, accfrm, accref)) = 
+                          if funref = accref
+                          then T.MEM(T.TEMP Frame.FP)
+                          else case parent of
+                                    LEV(prnt, prntfrm, prntref) => 
+                                      T.MEM(followLinks(LEV(parent, funfrm, funref), 
+                                                        LEV(prnt, prntfrm, prntref)))
+                                  | BASE => raise Fail "nesting depth not found"
+          val staticLink = case parent of 
+                                LEV(prnt, prntfrm, prntref) => 
+                                  (* immediate child call *)
+                                  if prntref = accref then T.TEMP Frame.FP
+                                  (* sibling call *)
+                                  else if funref = accref then T.MEM(T.TEMP Frame.FP)
+                                  (* parent call *)
+                                  else T.CONST 3
+                                (* no parent, so must be sibling call *)
+                              | BASE => 
+                                  T.MEM(T.TEMP Frame.FP)
+        in
+          Ex(T.CALL(T.NAME func, staticLink::map(unEx)(args)))
+        end
+    | callExp(_, _, _, _) = raise Fail "calling function at base level"
+
+  fun simpleVar((LEV(parent, accfrm, accref), acc), LEV(level, frame, frmref)) =
+    let 
+      fun getFrame(accref, (parent, frame, frmref)) =
+        if accref = frmref
+        then T.TEMP(Frame.FP)
+        else case parent of
+                  LEV(lev, frm, frmr) => 
+                                          T.MEM(
+                                           T.BINOP(
+                                            T.PLUS,
+                                            T.CONST 1,
+                                            getFrame(accref, (lev,frm,frmr))))
+                | BASE => raise Fail ("variable not found in highest scope")
+                (* TODO: fix this *)
+         (* our typechecker guarantees this will be found*)
+    in
+      Ex(Frame.exp(acc)(getFrame(accref, (level, frame, frmref))))
+    end
+    | simpleVar(_, _) = raise Fail "nonexaustive match"
 
   (* allocates some heap space for a record the fields placed in order of the
    * type declaration *)
@@ -394,10 +446,12 @@ struct
    * fragment to the list of fragments *)
   fun procEntryExit(LEV(lev, frm, frmref), exp) : unit =
     let
-      val lab= Temp.newlabel
+      val prologue = seq([T.LABEL(Frame.name(frm))])
+      val epilogue = seq([T.LABEL(Frame.name(frm))])
+      val newFrag = Frame.PROC({body=Frame.procEntryExit1(frm, unNx(exp)),
+                                frame=frm})
     in
-      (frags := Frame.PROC({body=Frame.procEntryExit1(frm, unNx(exp)), frame=frm}):: !frags;
-       ())
+      frags := newFrag:: !frags
     end
     | procEntryExit(BASE, exp) : unit = ()
 

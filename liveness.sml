@@ -6,15 +6,12 @@ sig
                         gtemp: Graph.node -> Temp.temp,
                         moves: (Graph.node * Graph.node) list}
 
-    (*
-       Takes a flow graph and returns two kinds of information:
+    (* Takes a flow graph and returns two kinds of information:
        - interference graph
        - table mapping of each flow-graph node to the set of temps that are
-         live-out at that node
-    *)
-    val interferenceGraph :
-        Flow.flowgraph ->
-        igraph * (Flow.Graph.node -> Temp.temp list)
+         live-out at that node *)
+    val interferenceGraph : Flow.flowgraph ->
+                  igraph * (Flow.Graph.node -> Temp.temp list)
 
     val show : igraph -> unit
 end
@@ -52,11 +49,55 @@ struct
     (* Helper for coercing a list to a set *)
     fun set(l) = S.addList(S.empty, l)
 
-    (* interferenceGraph: Flow.flowgraph -> igraph * (Flow.Graph.node -> Temp.temp list) *)
+    (* interferenceGraph: Flow.flowgraph -> 
+     *      igraph * (Flow.Graph.node -> Temp.temp list) *)
     fun interferenceGraph(F.FGRAPH{control, def, use, ismove}) =
         let
             val igraph = G.newGraph()
             val fnodes = G.nodes(control)
+
+            (* Plot temps as nodes and map either representation to each other  *)
+            fun plotTemps(temps) =
+                let
+                    val temps = []
+                    val temp2node : G.node T.Table.table = T.Table.empty
+                    val node2temp : T.temp F.Graph.Table.table = F.Graph.Table.empty
+                    fun processLiveness(tnode, ntemp, temp::temps) =
+                        (case T.Table.look(tnode, temp)
+                          of SOME(node) => processLiveness(tnode, ntemp, temps)
+                           | NONE =>
+                             let val node = F.Graph.newNode(igraph)
+                                 val tnode' = T.Table.enter(tnode, temp, node)
+                                 val ntemp' = F.Graph.Table.enter(ntemp, node, temp)
+                             in processLiveness(tnode', ntemp', temps)
+                             end)
+                      | processLiveness(tnode, ntemp, []) = (tnode, ntemp)
+                in processLiveness(temp2node, node2temp, temps)
+                end
+
+            fun getTemps() =
+                let
+                    fun addTemps(temps, node::nodes) =
+                        addTemps(S.addList(
+                                      S.addList(temps,lookList(def, node)),
+                                      lookList(use, node)),
+                                 nodes)
+                      | addTemps(temps, []) = temps
+                in addTemps(S.empty, fnodes)
+                end
+
+            val (temp2node, node2temp) = plotTemps(getTemps())
+
+            (* Generate the wrapper for the constructed mapping of temp->node *)
+            fun gentnode(nodemap) =
+                fn(t : T.temp) => (valOf(T.Table.look(nodemap, t)))
+
+            (* Generate the wrapper for the constructed mapping of node->temp *)
+            fun gengtemp(tempmap) =
+                fn(n : G.node) => (valOf(F.Graph.Table.look(tempmap, n)))
+
+            val tnode = gentnode(temp2node)
+            val gtemp = gengtemp(node2temp)
 
             (* Initialize an empty mapping of nodes to an empty set *)
             fun initialize() =
@@ -132,7 +173,7 @@ struct
                                  let val (to, from) = (lookList(def, node), lookList(use, node))
                                      (* move blocks only contain single tos and froms *)
                                      val (toNode, fromNode) = (List.hd(to), List.hd(from))
-                                 in addMoves((toNode, fromNode)::moves, nodes)
+                                 in addMoves((tnode(toNode), tnode(fromNode))::moves, nodes)
                                  end
                              else addMoves(moves, nodes)
                            (* shouldn't hit this, but depends on impl of flow graph *)
@@ -141,49 +182,6 @@ struct
                 in
                     addMoves(moves, fnodes)
                 end
-
-            (* Plot temps as nodes and map either representation to each other  *)
-            fun plotTemps(temps) =
-                let
-                    val temps = []
-                    val temp2node : G.node T.Table.table = T.Table.empty
-                    val node2temp : T.temp F.Graph.Table.table = F.Graph.Table.empty
-                    fun processLiveness(tnode, ntemp, temp::temps) =
-                        (case T.Table.look(tnode, temp)
-                          of SOME(node) => processLiveness(tnode, ntemp, temps)
-                           | NONE =>
-                             let val node = F.Graph.newNode(igraph)
-                                 val tnode' = T.Table.enter(tnode, temp, node)
-                                 val ntemp' = F.Graph.Table.enter(ntemp, node, temp)
-                             in processLiveness(tnode', ntemp', temps)
-                             end)
-                      | processLiveness(tnode, ntemp, []) = (tnode, ntemp)
-                in processLiveness(temp2node, node2temp, temps)
-                end
-
-            fun getTemps() =
-                let
-                    fun addTemps(temps, node::nodes) =
-                        addTemps(S.addList(
-                                      S.addList(temps,lookList(def, node)),
-                                      lookList(use, node)),
-                                 nodes)
-                      | addTemps(temps, []) = temps
-                in addTemps(S.empty, fnodes)
-                end
-
-            val (temp2node, node2temp) = plotTemps(getTemps())
-
-            (* Generate the wrapper for the constructed mapping of temp->node *)
-            fun gentnode(nodemap) =
-                fn(t : T.temp) => (valOf(T.Table.look(nodemap, t)))
-
-            (* Generate the wrapper for the constructed mapping of node->temp *)
-            fun gengtemp(tempmap) =
-                fn(n : G.node) => (valOf(F.Graph.Table.look(tempmap, n)))
-
-            val tnode = gentnode(temp2node)
-            val gtemp = gengtemp(node2temp)
 
             (* The table mapping of each flow-graph node to the set of temps that are
                live-out at that node *)

@@ -55,7 +55,6 @@ datatype stm = SEQ of stm * stm
       and relop = EQ | NE | LT | GT | LE | GE
                 | ULT | ULE | UGT | UGE
 
-  (* TODO: fix these, this is wrong *)
   fun notRel(EQ) = NE
     | notRel(NE) = EQ
     | notRel(LT) = GE
@@ -66,5 +65,15 @@ datatype stm = SEQ of stm * stm
     | notRel(UGE) = ULT
     | notRel(ULE) = UGT
     | notRel(UGT) = ULE
-  fun commute(id) = id
+
+  fun commute(EQ) = EQ
+    | commute(NE) = NE
+    | commute(LT) = GT
+    | commute(GE) = LE
+    | commute(LE) = GE
+    | commute(GT) = LT
+    | commute(ULT) = UGT
+    | commute(UGE) = UGT
+    | commute(ULE) = ULT
+    | commute(UGT) = UGE
 end

@@ -172,13 +172,13 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
         (* TODO: is this right? *)
         | trexp (A.CallExp{func, args, pos}) =
           (case E.lookupVar(func, env, pos)
-           of E.FunEntry{level, label, formals, result} =>
+           of E.FunEntry{level=funlevel, label, formals, result} =>
                 let
                   val argexptys = map(trexp)(args)
                   val argexps = map(fn {exp, ty} => exp)(argexptys)
                 in
                   (checkArgs(formals, argexptys, pos);
-                   {exp=(R.callExp(label, argexps)), ty= result})
+                   {exp=(R.callExp(funlevel, level, label, argexps)), ty= result})
                 end
             | _ => (M.error pos ("undefined function " ^ S.name func);
                     raise Fail "undefined function"))
@@ -371,15 +371,27 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
             fun checkFunDecs({name, params, result, body, pos}::fundecs) =
               (E.beginScope(env);
                (* add the variables to the scope *)
-               map(fn {name, escape, typ, pos} => 
+               let  
+                 val newLevel = R.newLevel({parent=level,
+                                            name=Temp.newlabel(),
+                                            formals=
+                                            map(fn({name, escape, typ, pos})=> !escape)
+                                            (params)})
+                 val formals = ref (R.formals(newLevel))
+                 fun getFormal() = 
+                   let
+                     val acc = hd(!formals)
+                   in
+                     (formals := tl(!formals); acc)
+                   end
+                 val _ = map(fn {name, escape, typ, pos} => 
                        E.setVar(name, 
                        E.VarEntry{ty=findTy(typ, pos), 
                                   (* we don't think this matters, since this is
                                    * only for typechecking *)
-                                  access=R.allocLocal(level)(!escape),
+                                  access=getFormal(),
                                   writable=true}, 
-                                  env))(params);
-               let  
+                                  env))(params)
                  val resultTy =
                    case result
                      of SOME((sym, pos)) => findTy(sym, pos)
@@ -387,11 +399,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                  val {exp=bodyexp, ty=bodyty} = 
                    transExp(body, 
                             env, 
-                            R.newLevel({parent=level,
-                                        name=Temp.newlabel(),
-                                        formals=
-                                          map(fn({name, escape, typ, pos})=> !escape)
-                                          (params)}),
+                            newLevel,
                             break)
                in 
                  (assertSubType(bodyty, pos, resultTy);
@@ -470,8 +478,7 @@ fun transExp(exp : A.exp, env, level: R.level, break: Temp.label) =
                   in
                     (assertSubType(initty, pos, ty);
                      E.setVar(name, entry, env);
-                     (* allocates space in the current frame and also creates
-                      *)
+                     (* allocates space in the current frame and also creates *)
                      [R.initialize(R.simpleVar(access, level), initexp)])
                   end),
                   transDec(restdecs))
@@ -494,9 +501,9 @@ fun transProg(exp : A.exp) =
       val baselvl = R.outermost
       val _ = FindEscape.findEscape(exp)
       val {exp, ty} = transExp(exp, env, baselvl, Temp.newlabel())
+      val exp = R.canonicalize(exp)
     in 
       (map(makeGraph)(R.getResult());
-       R.printtree(exp); 
        exp)
     end
 

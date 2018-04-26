@@ -1,11 +1,5 @@
 let
-  function fib(a:int,n:int): int =
-    let
-      function fib2(b: int): int =
-        n
-    in
-      fib2(3)
-    end
+  function fib(n:int): int = 3
 in
-  fib(3,4)
+  fib(4)
 end

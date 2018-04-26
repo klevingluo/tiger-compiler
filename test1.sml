@@ -1,3 +1,7 @@
 CM.make("sources.cm");
-PrintAbsyn.print(TextIO.stdOut, Parse.parse("testcases/fib.tig"));
+let
+  val absyn = Parse.parse("testcases/fib.tig")
+in
+  PrintAbsyn.print(TextIO.stdOut, absyn)
+end;
 OS.Process.exit(OS.Process.success);

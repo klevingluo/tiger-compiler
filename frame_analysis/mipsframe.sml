@@ -5,9 +5,6 @@ struct
 
   type register = string
 
-  val FP = Temp.newtemp()
-  val RV = Temp.newtemp()
-
   (* 0 register *)
   val R0 = Temp.newtemp()
   (* return registers *)
@@ -50,8 +47,11 @@ struct
   (* return program counter *)
   val R31 = Temp.newtemp()
 
+  val FP = R30
+  val RV = R2
+
   val specialregs = [R0, R2, R3, R26, R27, R28, R29, R30, R31]
-  val argregs = [R4, R5, R6, R7]
+  val argregs =     [R4, R5, R6, R7]
   val callersaves = [R8, R9, R10, R11, R12, R13, R14, R15, R24, R25]
   val calleesaves = [R16, R17, R18, R19, R20, R21, R22, R23]
 
@@ -62,7 +62,7 @@ struct
 
   type frame = {
     formals : access list,
-    shift   : string list,
+    shift   : T.stm list,
     numlocals : int ref,
     location : Temp.label
   }
@@ -76,33 +76,78 @@ struct
   datatype frag = PROC of {body: Tree.stm, frame: frame}
                 | STRING of Temp.label * string
 
+  (* creates accesses for all the arguments. All escaped arguments are passed in
+   * reverse order on the stack, and nonescaped arguments are passed in
+   * registers.*)
+  fun allocArgs(escs) =
+    let
+      val escArgs = ref 1
+      fun allocArg(esc) = 
+        if esc
+        then (escArgs := !escArgs - 1; InFrame(!escArgs))
+        else InReg(Temp.newtemp())
+    in
+      map(allocArg)(escs)
+    end
+
   fun newFrame({name, formals}) =
-    {
-      (* will need to copy the stack pointer to the frame pointer, the move the
-       * stack pointer to the end I'm pretty sure this will need to be in MIPS
-       * instructions.
-       *
-       * I'm guessing alloclocal will get called here somewhere.  If the
-       * argument is escaped.
-       * *)
-      formals=[],
-      shift=[],
-      numlocals=ref 0,
-      location=Temp.newlabel()
-      (* mips stuff in the shift bit *)
-    }
+    let
+      val stacksize = 8
+    in
+      {
+        (* will need to copy the stack pointer to the frame pointer, the move the
+         * stack pointer to the end I'm pretty sure this will need to be in MIPS
+         * instructions.
+         *
+         * I'm guessing alloclocal will get called here somewhere.  If the
+         * argument is escaped.
+         * *)
+        formals=allocArgs(formals),
+        (* TODO: things in shift:
+         * 1. the old stack pointer becomes the current frame pointer.
+         * 2. the callee saves registers are copied to the stack frame*)
+        shift=[
+          (* we save the old frame pointer to a location just beyond the number
+           * of local variables.*)
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST stacksize)),T.TEMP FP),
+          (* we copy the old stack pointer to the frame pointer*)
+          T.MOVE(T.TEMP FP, T.TEMP R29),
+          (* we make a new stack pointer subtracting the frame size from the old
+           * stack pointer*)
+          T.MOVE(T.TEMP R29, T.BINOP(T.PLUS, T.CONST stacksize, T.TEMP R29)),
+
+          (* saving all of the callee saves registers *)
+          (* TODO: clean this up *)
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 1))),T.TEMP 16),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 2))),T.TEMP 17),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 3))),T.TEMP 18),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 4))),T.TEMP 19),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 5))),T.TEMP 20),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 6))),T.TEMP 21),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 7))),T.TEMP 22),
+          T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 8))),T.TEMP 23)
+        ],
+        (* TODO: things after function exits: 
+         * 1. the old frame pointer is copied back from memory
+         * 2. the callee saves registers are copied from the stack frame*)
+         (*
+        shiftBack=[]
+          *)
+        numlocals=ref 0,
+        location=Temp.newlabel()
+      }
+    end
 
   fun name({formals, shift, numlocals, location}) = location
 
   (* the list of where the formals for this call will be kept at run time *)
-  val formals : frame -> access list = fn df => []
+  fun formals({formals, shift, numlocals, location}) = formals
 
   fun allocLocal({formals, shift, numlocals, location}) =
-    (numlocals := !numlocals + 1;
      fn esc =>
        if esc
-       then InFrame(!numlocals(* new local variable*))
-       else InReg(Temp.newtemp()))
+       then (numlocals := !numlocals + 1; InFrame(!numlocals))
+       else InReg(Temp.newtemp())
 
   fun exp(acc)=
     fn fp =>
@@ -113,9 +158,14 @@ struct
   fun externalCall(s, args) =
     T.CALL(T.NAME(Temp.namedlabel s), args)
 
+  (* 1. move all incoming arguements to the frame for escaping parameters, or a
+   * fresh temporary
+   * 2. save all spilled vars.*)
   fun procEntryExit1(frame, body) = 
     case body of
          T.EXP(ex) => T.MOVE(T.TEMP RV, ex)
        | _ => body
+
+  fun procEntryExit3(frame, body) = body
 
 end
