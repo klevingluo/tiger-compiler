@@ -199,7 +199,9 @@ struct
                live-out at that node *)
             val node2liveouts =
              fn(node : Flow.Graph.node) =>
-                (S.listItems(valOf(F.Graph.Table.look(liveOuts, node))))
+               case (F.Graph.Table.look(liveOuts, node)) of
+                    SOME(x) => S.listItems(x)
+                  | NONE => raise Fail "no livouts" 
 
             (* Plot the interference egdes *)
             (* At non-move instruction n defining a with out[n] = [b1..bj], add
@@ -207,8 +209,10 @@ struct
             fun plotEdges(node::nodes) =
                 let val defs = case (G.Table.look(def, node)) of
                                     SOME(x) => x
-                                  | NONE => []
-                    val outs = S.listItems(valOf(G.Table.look(liveOuts, node)))
+                                  | NONE => raise Fail "no defs for node"
+                    val outs = case (G.Table.look(liveOuts, node)) of
+                                    SOME(x) => S.listItems(x)
+                                  | NONE => raise Fail "no livouts"
                     (* plotDefToOuts: node * node list -> unit *)
                     fun plotDefToOuts(def', out'::outs') =
                         let val from = tnode(def')
@@ -222,12 +226,16 @@ struct
                         (plotDefToOuts(def', outs');
                          plotDefsToOuts(defs', outs'))
                       | plotDefsToOuts([], outs') = ()
-                in plotDefsToOuts(defs, outs)
+                in (plotDefsToOuts(defs, outs);
+                    plotEdges(nodes))
                 end
               | plotEdges([]) = ()
 
         in
             (plotEdges(fnodes);
+             (*  
+             map(fn nd => print(Int.toString(List.length(Graph.adj(nd))))) (Graph.nodes(igraph));
+              *)
              (IGRAPH{graph= igraph,
                      tnode= tnode,
                      gtemp= gtemp,

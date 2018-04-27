@@ -1,0 +1,95 @@
+L0:
+sw $fp, 0($sp)
+move $fp, $sp
+addiu $sp, $sp, 64
+L12:
+j L12
+jal L2
+move $2, $2
+addiu $2, $0, 3
+move $2, $2
+lw $2, 0($2)
+L13:
+move $sp, $fp
+lw $fp, 0($sp)
+jr $ra
+L0:
+sw $fp, 0($sp)
+move $fp, $sp
+addiu $sp, $sp, 128
+move $13, $2
+lw $2, 8($2)
+move $13, $3
+lw $3, 7($2)
+move $13, $3
+lw $3, 6($2)
+move $13, $3
+lw $3, 5($2)
+move $13, $3
+lw $3, 4($2)
+move $13, $3
+lw $3, 3($2)
+move $13, $3
+lw $3, 2($2)
+move $13, $3
+lw $3, 1($2)
+L11:
+move $12, $8
+addu $8, $8, $6
+jal L2
+move $13, $3
+addiu $3, $3, ~1
+lw $3, 0($3)
+lw $3, 1($2)
+move $13, $3
+lw $3, 0($2)
+jal L2
+move $13, $7
+addiu $7, $7, ~2
+lw $7, 0($7)
+lw $7, 1($2)
+move $13, $7
+lw $7, 0($2)
+L10:
+j L11
+move $12, $9
+addiu $9, $0, 1
+L9:
+beq $12, $13, L9
+b L10
+L6:
+move $13, $13
+L7:
+move $13, $9
+addiu $9, $0, 0
+L8:
+beq $10, $9, L7
+b L8
+lw $9, 0($9)
+lw $9, 1($2)
+addiu $10, $0, 1
+move $13, $10
+addiu $10, $0, 1
+L5:
+j L6
+move $13, $10
+addiu $10, $0, 0
+L4:
+beq $11, $10, L4
+b L5
+lw $10, 0($10)
+lw $10, 1($2)
+addiu $11, $0, 0
+addiu $12, $0, 1
+L0:
+sw $13, 8($2)
+sw $13, 7($2)
+sw $13, 6($2)
+sw $13, 5($2)
+sw $13, 4($2)
+sw $13, 3($2)
+sw $13, 2($2)
+sw $13, 1($2)
+move $sp, $fp
+lw $fp, 0($sp)
+jr $ra

@@ -1,5 +1,3 @@
-(* TODO: may not need this sig if we choose not to handle spills *)
-
 signature COLOR =
 sig
     structure Frame : FRAME
@@ -81,7 +79,7 @@ struct
     val adjSet   = ref M.empty (* inteference edges u,v in graph, symmetr closed*)
     (* list of all nodes interfering with u*)
     val adjList  = ref NodeListMap.empty : S.set NodeListMap.map ref
-    val degree   = ref M.empty (* degree of each node u *)
+    val degrees  = ref G.Table.empty : int G.Table.table ref (* degree of each node u *)
     val moveList = ref M.empty (* list of associated moves for each node*)
     val color    = ref M.empty (* the color of each node *)
     (* the alias of a coalesced move, that is, u -> v coalesced means alias(v) = u*)
@@ -106,8 +104,6 @@ struct
             fun mapDegrees(node::nodes, map) =
                 mapDegrees(nodes, G.Table.enter(map, node, List.length(G.adj node)))
               | mapDegrees([], map) = map
-
-            val degrees = ref (mapDegrees(G.nodes(graph), G.Table.empty))
 
             (* Determines whether the node is move related *)
             fun moveRelated(node) = not (List.null(nodeMoves(node)))
@@ -279,36 +275,18 @@ struct
                 app(freezeMove)(nodeMoves(u))
               end
 
-            and livenessAnalysis() = ()
-
             and build() = 
               let
-                (* TODO: dummy shit, remove and replace later *)
-                val program = []
-                fun liveOut(a) = []
-                val revProgram = List.rev(program)
-                fun isMoveInstr(a) = false
-                fun def(a) = []
-                fun addMove(a) = 
-                  (moveList := M.add(!moveList, a);
-                   worklistMoves := M.add(!worklistMoves, a))
-                fun procBlock(b) =
-                  let
-                    val live = ref(liveOut(b))
-                    fun procInstr(a) =
-                      (if isMoveInstr(a)
-                       then (live := [] (* liveout - use i*);
-                             app(addMove)([](* def i, use i *)))
-                       else ();
-                       live := !live (* + def I *);
-                       app(fn des => app(
-                           fn sec => addEdge(sec, des))(!live))
-                          (def(a)))
-                  in
-                    app(procInstr)(program)
-                  end
+                fun setDegree(nd) = 
+                  degrees := G.Table.enter(!degrees, nd, 0);
+                fun addEdges(nd) =
+                  map(fn n2 => addEdge(nd, n2))(G.succ(nd))
+                fun addajs(nd) =
+                  adjList := NodeListMap.insert(!adjList, nd, S.empty)
               in
-                map(procBlock)(revProgram)
+                (app(setDegree)(G.nodes(graph));
+                 app(addajs)(G.nodes(graph));
+                 map(addEdges)(G.nodes(graph)))
               end
 
             and addEdge(u : G.node, v : G.node) = 
@@ -316,12 +294,17 @@ struct
                 fun incrementDegree(nd) = 
                   degrees := G.Table.enter(!degrees, 
                                            nd, 
-                                           valOf(G.Table.look(!degrees, nd)) + 1);
+                                           (case (G.Table.look(!degrees, nd)) of
+                                                SOME(x) => x
+                                              | NONE => raise Fail "degrees not found") + 1);
                 fun addAdjList(a,b) =
                       adjList := 
                         NodeListMap.insert(!adjList, 
                                            a,
-                                           S.add(valOf(NodeListMap.find(!adjList, a)), b))
+                                           S.add(
+                             case(NodeListMap.find(!adjList, a)) of 
+                                  SOME(x) => x
+                                | NONE => raise Fail "error", b))
               in
                 if (M.member(!adjSet, (u,v)) andalso (not (G.eq(u,v))))
                 then adjSet := M.add(M.add(!adjSet, (u,v)), (v,u))
@@ -368,12 +351,11 @@ struct
               let
                 val ok = ref registers : Frame.register list ref
                 fun ruleOutColor(ot: G.node) = 
-                  ok := foldl(fn (col, acc) => 
-                             if S.member(S.union(!coloredNodes, !precolored), ot)
-                                andalso valOf(Ttab.look(!alloc, gtemp(ot))) = col 
-                             then acc
-                             else col::acc)
-                       ([])(!ok)
+                   ok := List.filter(fn (color) => 
+                          not (S.member(S.union(!coloredNodes, !precolored), ot)
+                                andalso valOf(Ttab.look(!alloc, gtemp(ot))) =
+                                color))
+                       (!ok)
                 fun accfunc(nd) = 
                   (app(ruleOutColor)
                       (case NodeListMap.find(!adjList, nd) of 
@@ -391,7 +373,7 @@ struct
                  app(colorCoalesce)(S.listItems(!coalescedNodes)))
               end
 
-            (* simplifies, freezes, and coalseces nodes where possible *)
+            (* simplifies, freezes, and coalesces nodes where possible *)
             and simplifyLoop() = (
                  if   not(S.isEmpty(!simplifyWorklist)) then simplify()
                  else if not(M.isEmpty(!worklistMoves)) then coalesce()
@@ -405,14 +387,12 @@ struct
                  then ()
                  else simplifyLoop()
               )
+
         in 
           (build();
            makeWorkList();
            simplifyLoop();
            assignColors();
-           print("spilled " ^ 
-                 Int.toString(List.length(S.listItems(!spilledNodes))) ^
-                 " temps \n");
            (!alloc, map(gtemp)(S.listItems(!spilledNodes))))
         end
 

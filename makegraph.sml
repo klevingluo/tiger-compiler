@@ -49,7 +49,11 @@ struct
                  end
              | A.LABEL{assem, lab} => 
                  (case HashTable.find(labels)(lab) of
-                      SOME(node) => node
+                      SOME(node) =>
+                      (defs  := Graph.Table.enter(!defs, node, []);
+                       uses  := Graph.Table.enter(!uses, node, []);
+                       moves := Graph.Table.enter(!moves, node, false);
+                       node)
                     | NONE => raise Fail "label not found")
              | A.MOVE{assem, dst, src} => 
                  let

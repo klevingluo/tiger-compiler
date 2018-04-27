@@ -1,1 +1,8 @@
-3
+let
+  function fib(a:int):int = 
+    if a = 0 | a = 1
+    then 1
+    else fib(a - 1) + fib(a - 2)
+in
+  fib(3)
+end

@@ -57,13 +57,13 @@ sig
   val printtree : exp -> unit
 end
 
-structure Translate : TRANSLATE = 
-struct 
+structure Translate : TRANSLATE =
+struct
   structure Frame : FRAME = MipsFrame
   structure T = Tree
   structure A = Absyn
 
-  (* Ex : An expression computed for value 
+  (* Ex : An expression computed for value
    * Nx : A statement computed for its side effects
    * Cx : An expression computed determine where to send control *)
   datatype exp = Ex of Tree.exp
@@ -73,7 +73,7 @@ struct
   (* A level is either the base level, or a new frame with a referece to the
    * previous level and a unit ref for comparison *)
   datatype level = BASE | LEV of (level * Frame.frame * unit ref)
-  type access = (level * Frame.access) 
+  type access = (level * Frame.access)
 
   (* helper function for generating statement sequences from a list of Tree
    * statements. *)
@@ -87,8 +87,8 @@ struct
     | formals(_) = raise Fail "taking formals of BASE"
 
   (* helper function for generating expression sequences *)
-  fun eseq(stms) = 
-    case rev stms of 
+  fun eseq(stms) =
+    case rev stms of
          [] => (T.CONST 0)
        | head::[] =>
          (case head of
@@ -121,8 +121,8 @@ struct
     | unEx(Nx s) = T.ESEQ(s, T.CONST 0)
   fun unNx(Ex e) = T.EXP e
     | unNx(Nx s) = s
-    | unNx(Cx genstm) = 
-      let val t = Temp.newlabel() 
+    | unNx(Cx genstm) =
+      let val t = Temp.newlabel()
       in seq([genstm(t,t), T.LABEL t])
       end
   fun unCx(Ex (T.CONST 0)) = (fn (t,f) => T.JUMP(T.NAME f, [f]))
@@ -151,9 +151,9 @@ struct
                             formals=[]})
 
   (* makes a top level fragment *)
-  fun topFrag(exp) = 
-    let 
-      val topFrame = MipsFrame.newFrame({formals=[], 
+  fun topFrag(exp) =
+    let
+      val topFrame = MipsFrame.newFrame({formals=[],
                                          name=topName})
     in
       MipsFrame.PROC({body=(unNx exp), frame=topFrame})
@@ -165,12 +165,12 @@ struct
 
 (* Code for handling variables starts here *)
   fun simpleVar((LEV(parent, accfrm, accref), acc), LEV(level, frame, frmref)) =
-    let 
+    let
       fun getFrame(accref, (parent, frame, frmref)) =
         if accref = frmref
         then T.TEMP(Frame.FP)
         else case parent of
-                  LEV(lev, frm, frmr) => 
+                  LEV(lev, frm, frmr) =>
                                           T.MEM(
                                            T.BINOP(
                                             T.PLUS,
@@ -185,16 +185,16 @@ struct
     | simpleVar(_, _) = raise Fail "nonexaustive match"
 
   (* tiger is simplified because all lvalues are of the same size *)
-  fun subscriptVar(var : exp, ind : exp) = 
-    Ex(T.MEM(T.BINOP(T.PLUS, 
-                     T.BINOP(T.MUL, T.CONST Frame.wordSize, unEx(ind)), 
+  fun subscriptVar(var : exp, ind : exp) =
+    Ex(T.MEM(T.BINOP(T.PLUS,
+                     T.BINOP(T.MUL, T.CONST Frame.wordSize, unEx(ind)),
                      unEx(var))))
 
-  fun fieldVar(var : exp, ind : int) : exp = 
-    Ex(T.MEM(T.BINOP(T.PLUS, 
-                     T.BINOP(T.MUL, 
-                             T.CONST Frame.wordSize, 
-                             T.CONST ind), 
+  fun fieldVar(var : exp, ind : int) : exp =
+    Ex(T.MEM(T.BINOP(T.PLUS,
+                     T.BINOP(T.MUL,
+                             T.CONST Frame.wordSize,
+                             T.CONST ind),
                      unEx(var))))
 
 (* code for handling expressions starts here *)
@@ -203,7 +203,7 @@ struct
 
   fun opExp(left, oper, right) : exp =
     case oper
-      of A.PlusOp   => 
+      of A.PlusOp   =>
            Ex(T.BINOP(T.PLUS, unEx(left), unEx(right)))
        | A.MinusOp  =>
            Ex(T.BINOP(T.MINUS, unEx(left), unEx(right)))
@@ -211,9 +211,9 @@ struct
            Ex(T.BINOP(T.MUL, unEx(left), unEx(right)))
        | A.DivideOp =>
            Ex(T.BINOP(T.DIV, unEx(left), unEx(right)))
-       | A.EqOp     => 
+       | A.EqOp     =>
            Cx(fn(t,f) => T.CJUMP(T.EQ, unEx(left), unEx(right), t, f))
-       | A.NeqOp    => 
+       | A.NeqOp    =>
            Cx(fn(t,f) => T.CJUMP(T.NE, unEx(left), unEx(right), t, f))
        | A.LtOp     =>
            Cx(fn(t,f) => T.CJUMP(T.LT, unEx(left), unEx(right), t, f))
@@ -257,11 +257,11 @@ struct
         end
     (* we can optimize if we have two Cx's *)
     | ifExp(test, Cx s1, SOME(Cx s2)) =
-      let 
+      let
         val a = Temp.newlabel()
         val b = Temp.newlabel()
       in
-          Cx (fn(t,f) => 
+          Cx (fn(t,f) =>
             seq([
                  unCx(test)(a,b),
                  T.LABEL a,
@@ -275,7 +275,7 @@ struct
         let
           val a = Temp.newlabel()
         in
-          Cx (fn(t,f) => 
+          Cx (fn(t,f) =>
             seq([
                  unCx(test)(a,f),
                  T.LABEL a,
@@ -359,12 +359,12 @@ struct
 
   (* unit exp is const 0*)
   fun unitExp() = Nx(T.EXP(T.CONST 0))
-  
+
   (* handles integer consts *)
   fun intExp(i) = Ex(T.CONST i)
 
   (* saves a string literal as a name, and a fragment to frags *)
-  fun stringExp(lit) = 
+  fun stringExp(lit) =
     let
       val lab= Temp.newlabel()
     in
@@ -374,23 +374,23 @@ struct
 
   (* handles function calls *)
   (* TODO: make this do the precall stuff *)
-  fun callExp(LEV(parent, funfrm, funref), 
-              LEV(level, accfrm, accref), 
-              func, 
-              args) = 
+  fun callExp(LEV(parent, funfrm, funref),
+              LEV(level, accfrm, accref),
+              func,
+              args) =
         let
           (* follows static links up the chain *)
-          fun followLinks(LEV(parent, funfrm, funref), 
-                          LEV(level, accfrm, accref)) = 
+          fun followLinks(LEV(parent, funfrm, funref),
+                          LEV(level, accfrm, accref)) =
                           if funref = accref
                           then T.MEM(T.TEMP Frame.FP)
                           else case parent of
-                                    LEV(prnt, prntfrm, prntref) => 
-                                      T.MEM(followLinks(LEV(parent, funfrm, funref), 
+                                    LEV(prnt, prntfrm, prntref) =>
+                                      T.MEM(followLinks(LEV(parent, funfrm, funref),
                                                         LEV(prnt, prntfrm, prntref)))
                                   | BASE => raise Fail "nesting depth not found"
-          val staticLink = case parent of 
-                                LEV(prnt, prntfrm, prntref) => 
+          val staticLink = case parent of
+                                LEV(prnt, prntfrm, prntref) =>
                                   (* immediate child call *)
                                   if prntref = accref then T.TEMP Frame.FP
                                   (* sibling call *)
@@ -398,7 +398,7 @@ struct
                                   (* parent call *)
                                   else T.CONST 3
                                 (* no parent, so must be sibling call *)
-                              | BASE => 
+                              | BASE =>
                                   T.MEM(T.TEMP Frame.FP)
         in
           Ex(T.CALL(T.NAME func, staticLink::map(unEx)(args)))
@@ -416,7 +416,7 @@ struct
         let val i = !ind
         in
           (ind := !ind +1;
-           T.MOVE(T.MEM(T.BINOP(T.PLUS, 
+           T.MOVE(T.MEM(T.BINOP(T.PLUS,
                                 T.TEMP r,
                                 T.CONST i)),
                   unEx exp)::genstm([]))
@@ -424,11 +424,11 @@ struct
         | genstm([]) = []
     in
       Ex(T.ESEQ(seq(
-             T.MOVE(T.TEMP r,Frame.externalCall("malloc", 
-                                         [T.BINOP(T.MUL, 
-                                                  T.CONST Frame.wordSize, 
+             T.MOVE(T.TEMP r,Frame.externalCall("malloc",
+                                         [T.BINOP(T.MUL,
+                                                  T.CONST Frame.wordSize,
                                                   T.CONST(length(fields)))]))
-             :: genstm(fields)), 
+             :: genstm(fields)),
              T.TEMP r))
     end
 
