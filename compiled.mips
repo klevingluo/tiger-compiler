@@ -4,11 +4,12 @@ move $fp, $sp
 addiu $sp, $sp, 64
 L12:
 j L12
+move $3, $3
 jal L2
-move $2, $2
+move $4, $2
 addiu $2, $0, 3
-move $2, $2
-lw $2, 0($2)
+move $4, $2
+lw $2, 0($3)
 L13:
 move $sp, $fp
 lw $fp, 0($sp)

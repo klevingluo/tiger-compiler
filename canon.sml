@@ -1,10 +1,35 @@
-signature CANON = 
-sig
+(* A drop-in-replacement version for Appel's Tree canonicaliser.
+ ******************************************************************************
+ * Olin Shivers, 2002/10, with bugfix by Ivan Raikov.
+ *
+ * Appel's canon.sml module is clever to the point of being incomprehensible.
+ * It relies on obscure invariants about patterns in the tree that are never
+ * spelled out. It's quite hard to really understand.
+ *
+ * Here is a version that is much easier to understand.
+ *
+ * There are no comments in this code, because it is simply a transcription 
+ * of the version in olincanon1.sml, with the following differences:
+ * - Rather than define the new Tree' language as a separate datatype,
+ *   we just translate to a sublanguage of Tree. 
+ * - We represent a sequence of canonicalised statements as a binary tree
+ *   constructed from SEQ's and leaf nodes. This allows us to "append" two
+ *   "sequences" in constant time. We subsequently linearise the tree into
+ *   a SEQ-free list, again in linear time. A nop statement is used to
+ *   represent the empty sequence.
+ * See olincanon1.sml for detailed comments.
+ *
+ * I've only rewritten the canonicaliser, linearize. I didn't rewrite the
+ * basicBlocks or traceSchedule functions. Have at it.
+ *   -Olin
+ *)
+
+signature CANON = sig
     val linearize : Tree.stm -> Tree.stm list
         (* From an arbitrary Tree statement, produce a list of cleaned trees
-         * satisfying the following properties:
-         *  1.  No SEQ's or ESEQ's
-         *  2.  The parent of every CALL is an EXP(..) or a MOVE(TEMP t,..)
+	   satisfying the following properties:
+	      1.  No SEQ's or ESEQ's
+	      2.  The parent of every CALL is an EXP(..) or a MOVE(TEMP t,..)
         *)
 
     val basicBlocks : Tree.stm list -> (Tree.stm list list * Tree.label)
@@ -31,88 +56,131 @@ sig
          *)
 end
 
-structure Canon : CANON = 
-struct
+structure Canon : CANON = struct
+local
+  open Tree
+in
+
+infix %				(* Paste together two stmts       *)
+fun (EXP(CONST _)) % x = x	(* (but drop noops on the floor). *)
+  | x % (EXP(CONST _)) = x
+  | x % y = SEQ(x,y)
+
+val nop = EXP(CONST 0)
+
+(* Apply f:stm->bool to every leaf node in a stmt tree;
+ * "and" the results together.
+ *)
+fun stmtall f stm = let fun recur(SEQ(a,b)) = recur a andalso recur b
+			  | recur s         = f s
+		    in recur stm
+		    end
+
+
+fun commutes(_, NAME _)       = true
+  | commutes(_, CONST _)      = true
+  | commutes(stmt, BINOP(_,e1,e2)) = commutes(stmt,e1) andalso commutes(stmt,e2)
+  | commutes(stmt, TEMP t) =
+      stmtall (fn (LABEL _)   => true
+		| (JUMP _)    => false	(* Maybe *)
+		| (CJUMP _)   => false	(* Maybe *)
+		| (EXP(CALL _)) => true	(* Temps per-procedure call. *)
+		| (MOVE(TEMP t',_)) => not (t = t')
+		| (MOVE _)          => true
+		| (EXP _) => true)	(* I think this case will only be     *)
+          stmt				(* triggered by noop's -- EXP(CONST _)*)
+  | commutes(stmt, MEM _) =
+      stmtall (fn (MOVE(MEM _,_))    => false (* Maybe *)
+		| (JUMP _)           => false (* Maybe *)
+		| (CJUMP _)          => false (* Maybe *)
+		| (EXP(CALL _))      => false (* Maybe *)
+		| (MOVE(_,CALL _))   => false (* Maybe *)
+		| _                  => true)
+	      stmt
+
+
+fun do_exps (exp::exps) =
+    let val (stm1',exp') = do_exp exp
+	val (stm2',exps') = do_exps exps
+    in if commutes(stm2',exp')
+       then (stm1' % stm2', exp'::exps')
+       else let val t = TEMP(Temp.newtemp())
+	    in ( stm1' % MOVE(t, exp') % stm2'  ,  t::exps' )
+	    end
+    end
+  | do_exps [] = (nop, [])	(* Noop *)
+
+
+and do_stm(SEQ(a,b)) =         do_stm a % do_stm b
+  | do_stm(JUMP(e,labs)) =     let val (stm',e') = do_exp e
+		 	       in stm' % JUMP(e',labs)
+			       end
+  | do_stm(CJUMP(p,a,b,t,f)) = let val (stm',[a',b']) = do_exps [a,b]
+			       in stm' % CJUMP(p,a',b',t,f)
+			       end
+  | do_stm(MOVE(TEMP t,b)) =   let val (stm', rv) = do_rval b
+			       in stm' % MOVE(TEMP t, rv)
+			       end
+  | do_stm(MOVE(MEM e,b)) =    let val (stm1', e')  = do_exp e
+				   val (stm2', rv)  = do_rval b
+			       in if commutes(stm2', e')
+				  then stm1' % stm2' % MOVE(MEM e', rv)
+				  else let val t = TEMP(Temp.newtemp())
+				       in stm1' % MOVE(t, e')
+					        % stm2'
+						% MOVE(MEM t, rv)
+				       end
+			       end
+  | do_stm(EXP e) = 	       let val (stm', _) = do_exp e
+		    	       in stm'
+		    	       end
+  | do_stm label =	       label
+
+
+and do_exp(BINOP(p,a,b)) = let val (stm',[a',b']) = do_exps [a,b]
+			   in (stm',BINOP(p,a',b'))
+			   end
+ 			   
+  | do_exp(MEM a) = 	   let val (stm',a') = do_exp a
+		    	   in (stm', MEM a')
+		    	   end
+ 			   
+  | do_exp(ESEQ(s,e)) =    let val stm1' = do_stm s
+			       val (stm2',e') = do_exp e
+			   in (stm1' % stm2', e')
+			   end
+
+  | do_exp(CALL(f,args)) = let val t = TEMP(Temp.newtemp())
+			       val (stm', f'::args') = do_exps(f::args)
+			   in (stm' % MOVE(t, CALL(f',args'))  ,  t)
+			   end
+
+  | do_exp other =         (nop, other)
+
+
+and do_rval(ESEQ(s,e)) =    let val stm1' = do_stm s
+			    	val (stm2',r') = do_rval e
+			    in (stm1' % stm2', r')
+			    end
+
+  | do_rval(CALL(f,args)) = let val (stm',f'::args') = do_exps(f::args)
+			    in (stm', CALL(f', args'))
+			    end
+
+  | do_rval exp  = 	    let val (stm', exp') = do_exp exp
+		   	    in (stm', exp')
+		   	    end
+
+fun linear(SEQ(a,b),l) = linear(a,linear(b,l)) (* Flatten top-level SEQ's    *)
+  | linear(s,l) = s::l			       (* into a list of leaf stmts. *)
+
+fun linearize stm0 = linear(do_stm stm0, nil)
+
+(* From here down it's just Andrew's lineariser code
+ ******************************************************************************
+ *)
 
   structure T = Tree
-
- fun linearize(stm0: T.stm) : T.stm list =
- let
-  infix %
-  fun (T.EXP(T.CONST _)) % x = x
-    | x % (T.EXP(T.CONST _)) = x
-    | x % y = T.SEQ(x,y)
-
-  fun commute(T.EXP(T.CONST _), _) = true
-    | commute(_, T.NAME _) = true
-    | commute(_, T.CONST _) = true
-    | commute _ = false
-
-  val nop = T.EXP(T.CONST 0)
-
-  fun reorder ((e as T.CALL _ )::rest) =
-	let val t = Temp.newtemp()
-	 in reorder(T.ESEQ(T.MOVE(T.TEMP t, e), T.TEMP t) :: rest)
-	end
-    | reorder (a::rest) =
-	 let val (stms,e) = do_exp a
-	     val (stms',el) = reorder rest
-	  in if commute(stms',e)
-	     then (stms % stms',e::el)
-	     else let val t = Temp.newtemp()
-		   in (stms % T.MOVE(T.TEMP t, e) % stms', T.TEMP t :: el)
-		  end
-	 end
-    | reorder nil = (nop,nil)
-
-  and reorder_exp(el,build) = let val (stms,el') = reorder el
-                        in (stms, build el')
-                       end
-
-  and reorder_stm(el,build) = let val (stms,el') = reorder (el)
-		 	 in stms % build(el')
-			end
-
-  and do_stm(T.SEQ(a,b)) = 
-               do_stm a % do_stm b
-    | do_stm(T.JUMP(e,labs)) = 
-	       reorder_stm([e],fn [e] => T.JUMP(e,labs))
-    | do_stm(T.CJUMP(p,a,b,t,f)) = 
-               reorder_stm([a,b], fn[a,b]=> T.CJUMP(p,a,b,t,f))
-    | do_stm(T.MOVE(T.TEMP t,T.CALL(e,el))) = 
-               reorder_stm(e::el,fn e::el => T.MOVE(T.TEMP t,T.CALL(e,el)))
-    | do_stm(T.MOVE(T.TEMP t,b)) = 
-	       reorder_stm([b],fn[b]=>T.MOVE(T.TEMP t,b))
-    | do_stm(T.MOVE(T.MEM e,b)) = 
-	       reorder_stm([e,b],fn[e,b]=>T.MOVE(T.MEM e,b))
-    | do_stm(T.MOVE(T.ESEQ(s,e),b)) = 
-	       do_stm(T.SEQ(s,T.MOVE(e,b)))
-    | do_stm(T.EXP(T.CALL(e,el))) = 
-	       reorder_stm(e::el,fn e::el => T.EXP(T.CALL(e,el)))
-    | do_stm(T.EXP e) = 
-	       reorder_stm([e],fn[e]=>T.EXP e)
-    | do_stm s = reorder_stm([],fn[]=>s)
-
-  and do_exp(T.BINOP(p,a,b)) = 
-                 reorder_exp([a,b], fn[a,b]=>T.BINOP(p,a,b))
-    | do_exp(T.MEM(a)) = 
-		 reorder_exp([a], fn[a]=>T.MEM(a))
-    | do_exp(T.ESEQ(s,e)) = 
-		 let val stms = do_stm s
-		     val (stms',e) = do_exp e
-		  in (stms%stms',e)
-		 end
-    | do_exp(T.CALL(e,el)) = 
-		 reorder_exp(e::el, fn e::el => T.CALL(e,el))
-    | do_exp e = reorder_exp([],fn[]=>e)
-
-  (* linear gets rid of the top-level SEQ's, producing a list *)
-  fun linear(T.SEQ(a,b),l) = linear(a,linear(b,l))
-    | linear(s,l) = s::l
-
- in (* body of linearize *)
-    linear(do_stm stm0, nil)
- end
 
   type block = T.stm list
 
@@ -180,4 +248,5 @@ struct
        getnext(foldr enterblock Symbol.empty blocks, blocks)
          @ [T.LABEL done]
 
-end
+end (*local*)
+end (*struct*)
