@@ -11,7 +11,7 @@ sig
        - table mapping of each flow-graph node to the set of temps that are
          live-out at that node *)
     val interferenceGraph : Flow.flowgraph ->
-                  igraph * (Flow.Graph.node -> Temp.temp list)
+        igraph * (Flow.Graph.node -> Temp.temp list)
 
     val show : igraph -> unit
 end
@@ -23,6 +23,12 @@ struct
     structure T = Temp
     structure F = Flow
     structure S = IntListSet
+    (* a set of temps *)
+    structure Tset = RedBlackSetFn (struct
+                      type ord_key = Temp.temp
+                      fun compare(n1, n2) = String.compare(Temp.makestring(n1),
+                                                        Temp.makestring(n2))
+                     end)
 
     datatype igraph =
              IGRAPH of {graph: G.graph,
@@ -56,17 +62,17 @@ struct
             val igraph = G.newGraph()
             val fnodes = G.nodes(control)
 
-            (* Plot temps as nodes and map either representation to each other  *)
+            (* add all temps to the interference graph, and initializes the maps
+             * between nodes and temps *)
             fun plotTemps(temps) =
                 let
-                    val temps = []
                     val temp2node : G.node T.Table.table = T.Table.empty
                     val node2temp : T.temp F.Graph.Table.table = F.Graph.Table.empty
                     fun processLiveness(tnode, ntemp, temp::temps) =
                         (case T.Table.look(tnode, temp)
                           of SOME(node) => processLiveness(tnode, ntemp, temps)
                            | NONE =>
-                             let val node = F.Graph.newNode(igraph)
+                             let val node   = Graph.newNode(igraph)
                                  val tnode' = T.Table.enter(tnode, temp, node)
                                  val ntemp' = F.Graph.Table.enter(ntemp, node, temp)
                              in processLiveness(tnode', ntemp', temps)
@@ -86,15 +92,21 @@ struct
                 in addTemps(S.empty, fnodes)
                 end
 
-            val (temp2node, node2temp) = plotTemps(getTemps())
+            val (temp2node, node2temp) = plotTemps(S.listItems(getTemps()))
 
             (* Generate the wrapper for the constructed mapping of temp->node *)
             fun gentnode(nodemap) =
-                fn(t : T.temp) => (valOf(T.Table.look(nodemap, t)))
+                fn(t : T.temp) => 
+                  case (T.Table.look(nodemap, t)) of
+                       SOME(x) => x
+                     | NONE => raise Fail "node not found"
 
             (* Generate the wrapper for the constructed mapping of node->temp *)
             fun gengtemp(tempmap) =
-                fn(n : G.node) => (valOf(F.Graph.Table.look(tempmap, n)))
+                fn(n : G.node) => (
+                  case(F.Graph.Table.look(tempmap, n)) of
+                       SOME(x) => x
+                     | NONE => raise Fail "temp not found in graph")
 
             val tnode = gentnode(temp2node)
             val gtemp = gengtemp(node2temp)
@@ -193,7 +205,9 @@ struct
             (* At non-move instruction n defining a with out[n] = [b1..bj], add
                interference edges [(a,b1)..(a,bj)] *)
             fun plotEdges(node::nodes) =
-                let val defs = valOf(G.Table.look(def, node))
+                let val defs = case (G.Table.look(def, node)) of
+                                    SOME(x) => x
+                                  | NONE => []
                     val outs = S.listItems(valOf(G.Table.look(liveOuts, node)))
                     (* plotDefToOuts: node * node list -> unit *)
                     fun plotDefToOuts(def', out'::outs') =

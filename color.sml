@@ -5,19 +5,19 @@ sig
     structure Frame : FRAME
     type allocation = Frame.register Temp.Table.table
     val color : {interference : Liveness.igraph,
-                 initial : Graph.node list,
+                 initial : allocation,
                  spillCost : Graph.node -> int,
                  node2live : Flow.Graph.node -> Temp.temp list,
                  registers : Frame.register list}
-                -> unit
+                -> (allocation * Temp.temp list)
+    val cleanSpills : unit -> unit
 end
 
 structure Color : COLOR =
 struct
+
     structure Frame = MipsFrame
-
-    type allocation = Frame.register Temp.Table.table
-
+    structure Ttab= Temp.Table
     structure G = Graph
     structure T = Temp
     structure S = RedBlackSetFn (struct
@@ -38,8 +38,12 @@ struct
 
     (* the cantor function maps pairs of integers to unique integers *)
     (* sets of ordered pairs of nodes *)
+    
+    type move = G.node * G.node
+    type allocation = Frame.register Ttab.table
+    
     structure M = RedBlackSetFn (struct
-                      type ord_key = (G.node * G.node)
+                      type ord_key = move
                       fun compare(((_, x1),(_,y1)), ((_, x2), (_,y2))) = 
                         let fun cantor(x,y) = (x + y) * (x + y + 1) div 2 + y
                         in Int.compare(cantor(x1,y1), cantor(x2,y2))
@@ -47,6 +51,7 @@ struct
                      end)
 
     (* DATA STRUCTURES *)
+    val alloc = ref Ttab.empty : allocation ref
 
     (* Work-lists, Sets, and Stacks *)
     (* TODO: these should be mutually disjoint, may aid debugging if we enforce
@@ -58,6 +63,7 @@ struct
     val spilledNodes     = ref S.empty (* nodes marked for spilling this round *)
     val coalescedNodes   = ref S.empty (* nodes coalesced *)
     val coloredNodes     = ref S.empty (* nodes colored *)
+    val initialref       = ref S.empty 
 
     val selectStack      = ref [] : G.node list ref (* stack of removed temps *)
 
@@ -81,6 +87,11 @@ struct
     (* the alias of a coalesced move, that is, u -> v coalesced means alias(v) = u*)
     val alias    = ref Nodemap.empty : G.node Nodemap.map ref 
 
+    fun cleanSpills() = 
+      (spilledNodes   := S.empty;
+       coloredNodes   := S.empty;
+       coalescedNodes := S.empty)
+
     (* color: {Liveness.igraph, allocation, Graph.node -> int, Frame.register list}
               -> allocation * Temp.temp list *)
     fun color({interference= Liveness.IGRAPH{graph, tnode, gtemp, moves},
@@ -90,20 +101,16 @@ struct
               registers}) =
         let (* We have len(registers) colors to color with *)
             val k = List.length(registers)
-            val graph = ref graph
 
             (* Maps the degree of all nodes to the number of adjacent nodes *)
             fun mapDegrees(node::nodes, map) =
                 mapDegrees(nodes, G.Table.enter(map, node, List.length(G.adj node)))
               | mapDegrees([], map) = map
 
-            val degrees = ref (mapDegrees(G.nodes(!graph), G.Table.empty))
+            val degrees = ref (mapDegrees(G.nodes(graph), G.Table.empty))
 
             (* Determines whether the node is move related *)
-            fun moveRelated(node) =
-                List.exists (fn((n1, n2)) => G.eq(node, n1) orelse
-                                             G.eq(node,n2)) 
-                             moves 
+            fun moveRelated(node) = not (List.null(nodeMoves(node)))
 
             (* Retrieves the degree of a node *)
             and getDegree(node) = valOf(G.Table.look(!degrees, node))
@@ -113,8 +120,7 @@ struct
             and decrementDegree(node) =
                 let val dNode = getDegree(node)
                 in (degrees := G.Table.enter(!degrees, node, dNode - 1);
-                     (* TODO: might be wrong  *)
-                    if dNode < k
+                    if dNode = k
                     then (enableMoves(node::G.adj(node));
                           spillWorklist := S.delete(!spillWorklist, node);
                           if moveRelated(node)
@@ -123,22 +129,22 @@ struct
                     else ())
                 end
 
-            and enableMoves(node::rest) =
+            and enableMoves(nodes) =
               let
                 fun processMove(move) =
                   if M.member(!activeMoves, move)
                   then (activeMoves := M.delete(!activeMoves, move);
-                  worklistMoves := M.add(!worklistMoves, move))
+                        worklistMoves := M.add(!worklistMoves, move))
                   else ()
                 fun processMoves(moves) = map(fn mv => processMove(mv))(moves)
               in
-                map(fn nd => (processMoves(nodeMoves(nd))))(G.nodes(!graph))
+                map(fn nd => (processMoves(nodeMoves(nd))))(nodes)
               end
 
-            and nodeMoves(node : G.node) : (G.node * G.node) list= 
-              List.filter(fn((n1, n2)) => G.eq(node, n1) orelse
-                                          G.eq(node, n2)) 
-                         (M.listItems(!activeMoves))
+            and nodeMoves(node : G.node) : move list= 
+              List.filter(fn move => M.member(!activeMoves, move) orelse
+                                     M.member(!worklistMoves, move))
+                         (M.listItems(!moveList))
 
             and simplify() = (
               let
@@ -172,13 +178,17 @@ struct
                else spillWorklist := S.delete(!spillWorklist, v);
                coalescedNodes := S.add(!coalescedNodes, v);
                alias := Nodemap.insert(!alias, v, u);
-               (* TODO: nodemoves u = nm u + nm v *)
-               (map(fn t => (addEdge(t,u);
+               app(fn (x,y) => if G.eq(x,v)
+                               then moveList := M.add(!moveList, (u,y))
+                               else ())
+                  (M.listItems(!moveList));
+               enableMoves([v]);
+               map(fn t => (addEdge(t,u);
                              decrementDegree(t)))
-                  (G.adj(v)));
+                  (G.adj(v));
                if (getDegree(u) >= k andalso S.member(!freezeWorklist, u))
                then (freezeWorklist := S.delete(!freezeWorklist, u);
-                     spillWorklist := S.delete(!spillWorklist, u))
+                     spillWorklist := S.add(!spillWorklist, u))
                else ())
 
             and getAlias(node: G.node) =
@@ -189,7 +199,7 @@ struct
             and conservative(nodes) =
               (let 
                  fun foldfunc(nd, acc) =
-                   if getDegree(nd) > k 
+                   if getDegree(nd) >= k 
                    then acc + 1 
                    else acc
                  val deg = foldr(foldfunc)(0)(nodes)
@@ -220,13 +230,13 @@ struct
                                 then (y,x)
                                 else (x,y)
                   in
-                    (worklistMoves := M.delete(!worklistMoves, (x,y));
+                    (worklistMoves := M.delete(!worklistMoves, (from, to));
                      if (G.eq(u,v))
                      then (coalescedMoves := M.add(!coalescedMoves, (from, to));
                            addWorkList(u))
                      else if (S.member(!precolored, v) orelse 
                               M.member(!adjSet, (u,v)))
-                     then (constrainedMoves := M.add(!constrainedMoves, (x,y));
+                     then (constrainedMoves := M.add(!constrainedMoves,(from,to));
                            addWorkList(u);
                            addWorkList(v))
                      else if (S.member(!precolored, u) andalso 
@@ -236,7 +246,7 @@ struct
                      then (coalescedMoves := M.add(!coalescedMoves, (from, to));
                            combine(u,v);
                            addWorkList(u))
-                     else activeMoves := M.add(!activeMoves, (x,y)))
+                     else activeMoves := M.add(!activeMoves, (from, to)))
                   end
               in
                 app(processMove)(M.listItems(!worklistMoves))
@@ -301,7 +311,7 @@ struct
                 map(procBlock)(revProgram)
               end
 
-            and addEdge(u : G.node,v : G.node) = 
+            and addEdge(u : G.node, v : G.node) = 
               let
                 fun incrementDegree(nd) = 
                   degrees := G.Table.enter(!degrees, 
@@ -326,8 +336,7 @@ struct
                 else ()
               end
 
-            and selectSpill() =
-                raise Fail "graph is uncolorable without unsupported spilling"
+            and selectSpill() = ()
 
             and makeWorkList() =
               let
@@ -338,7 +347,9 @@ struct
                   then freezeWorklist := S.add(!freezeWorklist, node)
                   else simplifyWorklist := S.add(!simplifyWorklist, node)
               in
-                map(sortNode)(initial)
+                 (alloc := initial;
+                  map(fn nd => initialref := S.add(!initialref, nd))(G.nodes(graph));
+                  app(sortNode)(S.listItems(!initialref)))
               end
 
             and adjacent(n) =
@@ -353,8 +364,32 @@ struct
                                            S.listItems(!coalescedNodes)))
               end
 
-            and assignColors() = ()
-            and rewriteProgram(spilledNodes) = ()
+            and assignColors() = 
+              let
+                val ok = ref registers : Frame.register list ref
+                fun ruleOutColor(ot: G.node) = 
+                  ok := foldl(fn (col, acc) => 
+                             if S.member(S.union(!coloredNodes, !precolored), ot)
+                                andalso valOf(Ttab.look(!alloc, gtemp(ot))) = col 
+                             then acc
+                             else col::acc)
+                       ([])(!ok)
+                fun accfunc(nd) = 
+                  (app(ruleOutColor)
+                      (case NodeListMap.find(!adjList, nd) of 
+                            SOME(x) => S.listItems(x)
+                          | NONE => []);
+                   if List.null(!ok)
+                   then spilledNodes := S.add(!spilledNodes, nd)
+                   else (coloredNodes := S.add(!coloredNodes, nd);
+                         alloc := Ttab.enter(!alloc, gtemp(nd), hd(!ok))))
+                fun colorCoalesce(nd) = 
+                         alloc := Ttab.enter(!alloc, gtemp(nd),
+                         valOf(Ttab.look(!alloc, gtemp(getAlias(nd)))))
+              in
+                (app(accfunc)(!selectStack);
+                 app(colorCoalesce)(S.listItems(!coalescedNodes)))
+              end
 
             (* simplifies, freezes, and coalseces nodes where possible *)
             and simplifyLoop() = (
@@ -370,19 +405,15 @@ struct
                  then ()
                  else simplifyLoop()
               )
-
-            and mainLoop() =
-                (livenessAnalysis();
-                 build();
-                 makeWorkList();
-                 simplifyLoop();
-                 assignColors();
-                 if not (S.isEmpty(!spilledNodes))
-                 then (rewriteProgram(!spilledNodes);
-                       mainLoop())
-                 else ())
         in 
-          mainLoop()
+          (build();
+           makeWorkList();
+           simplifyLoop();
+           assignColors();
+           print("spilled " ^ 
+                 Int.toString(List.length(S.listItems(!spilledNodes))) ^
+                 " temps \n");
+           (!alloc, map(gtemp)(S.listItems(!spilledNodes))))
         end
 
 end

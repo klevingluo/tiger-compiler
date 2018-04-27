@@ -3,10 +3,12 @@ sig
   type frame
   type access
   type register
+  val registers : register list
   val newFrame : {name: Temp.label, formals: bool list} -> frame
   val name : frame -> Temp.label
   val formals : frame -> access list
   val allocLocal : frame -> bool -> access
+  val tempMap : register Temp.Table.table
 
   val FP : Temp.temp (* frame pointer *)
   val RV : Temp.temp (* return value, as seen by callee *)

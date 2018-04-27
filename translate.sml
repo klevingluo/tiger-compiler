@@ -405,26 +405,6 @@ struct
         end
     | callExp(_, _, _, _) = raise Fail "calling function at base level"
 
-  fun simpleVar((LEV(parent, accfrm, accref), acc), LEV(level, frame, frmref)) =
-    let 
-      fun getFrame(accref, (parent, frame, frmref)) =
-        if accref = frmref
-        then T.TEMP(Frame.FP)
-        else case parent of
-                  LEV(lev, frm, frmr) => 
-                                          T.MEM(
-                                           T.BINOP(
-                                            T.PLUS,
-                                            T.CONST 1,
-                                            getFrame(accref, (lev,frm,frmr))))
-                | BASE => raise Fail ("variable not found in highest scope")
-                (* TODO: fix this *)
-         (* our typechecker guarantees this will be found*)
-    in
-      Ex(Frame.exp(acc)(getFrame(accref, (level, frame, frmref))))
-    end
-    | simpleVar(_, _) = raise Fail "nonexaustive match"
-
   (* allocates some heap space for a record the fields placed in order of the
    * type declaration *)
   fun recordExp(fields) =
@@ -458,7 +438,8 @@ struct
     let
       val prologue = seq([T.LABEL(Frame.name(frm))])
       val epilogue = seq([T.LABEL(Frame.name(frm))])
-      val newFrag = Frame.PROC({body=Frame.procEntryExit1(frm, unNx(exp)),
+      val body = T.SEQ(T.LABEL(Frame.name(frm)), unNx(exp))
+      val newFrag = Frame.PROC({body=Frame.procEntryExit1(frm, body),
                                 frame=frm})
     in
       frags := newFrag:: !frags

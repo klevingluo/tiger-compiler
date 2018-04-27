@@ -55,10 +55,27 @@ struct
   val callersaves = [R8, R9, R10, R11, R12, R13, R14, R15, R24, R25]
   val calleesaves = [R16, R17, R18, R19, R20, R21, R22, R23]
 
+  (* R1 is no available *)
+  val registers = ["$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9",
+                   "$10", "$11", "$12", "$13", "$14", "$15", "$16", "$17", 
+                   "$18", "$19", "$20", "$21", "$22", "$23", "$24", "$25", 
+                   "$26", "$27", "$28", "$29", "$30", "$31", "$32"]
+
   (* InFrame indicates things that are in the frame at offset int from the stack
    * pointer.  InReg are register locations (which are copied onto the stack for
    * nonleaf operations *)
   datatype access = InFrame of int | InReg of Temp.temp
+
+  val tempMap = foldr(fn ((reg, str), acc) => Temp.Table.enter(acc, reg, str))
+                     (Temp.Table.empty)
+                     ([(R0,"$0"), (R2,"$2"), (R3,"$3"), (R4,"$4"),
+                       (R5,"$5"), (R6,"$6"), (R7,"$7"), (R8,"$8"), (R9,"$9"),
+                       (R10,"$10"), (R11,"$11"), (R12,"$12"), (R13,"$13"),
+                       (R14,"$14"), (R15,"$15"), (R16,"$16"), (R17,"$17"),
+                       (R18,"$18"), (R19,"$19"), (R20,"$20"), (R21,"$21"),
+                       (R22,"$22"), (R23,"$23"), (R24,"$24"), (R25,"$25"),
+                       (R26,"$26"), (R27,"$27"), (R28,"$28"), (R29,"$29"),
+                       (R30,"$30"), (R31,"$31")])
 
   type frame = {
     formals : access list,
@@ -134,7 +151,7 @@ struct
         shiftBack=[]
           *)
         numlocals=ref 0,
-        location=Temp.newlabel()
+        location=name
       }
     end
 

@@ -172,7 +172,7 @@ fun codegen(frame, stm) =
                                   jump=NONE}))
           | munchExp(T.CONST(i)) =
             result(fn(r) =>
-                      emit(A.OPER{assem= "addiu `d0, r0, " ^ int(i) ^ "\n",
+                      emit(A.OPER{assem= "addiu `d0, $0, " ^ int(i) ^ "\n",
                                   src=[],
                                   dst=[r],
                                   jump=NONE}))
@@ -258,7 +258,7 @@ fun codegen(frame, stm) =
                            emit(A.OPER{assem= "jal " ^ sym f ^ "\n",
                                        src=[],
                                        dst=[],
-                                       jump=SOME([f])}))
+                                       jump=NONE}))
                         end)
 
     in munchStm(stm);
