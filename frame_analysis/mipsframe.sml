@@ -82,7 +82,7 @@ struct
   fun allocArgs(escs) =
     let
       val escArgs = ref 1
-      fun allocArg(esc) = 
+      fun allocArg(esc) =
         if esc
         then (escArgs := !escArgs - 1; InFrame(!escArgs))
         else InReg(Temp.newtemp())
@@ -127,7 +127,7 @@ struct
           T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 7))),T.TEMP 22),
           T.MOVE(T.MEM(T.BINOP(T.PLUS, T.TEMP R29, T.CONST(stacksize + 8))),T.TEMP 23)
         ],
-        (* TODO: things after function exits: 
+        (* TODO: things after function exits:
          * 1. the old frame pointer is copied back from memory
          * 2. the callee saves registers are copied from the stack frame*)
          (*
@@ -156,16 +156,60 @@ struct
        | (InReg t) => T.TEMP t
 
   fun externalCall(s, args) =
-    T.CALL(T.NAME(Temp.namedlabel s), args)
+      T.CALL(T.NAME(Temp.namedlabel s), args)
+
+  (* re-define this helper so we don't introduce a cyclic-dependency requiring translate *)
+  fun seq(x::[]) = x
+    | seq(x::rest) = T.SEQ(x, seq(rest))
+    | seq([]) = T.EXP(T.CONST 0)
 
   (* 1. move all incoming arguements to the frame for escaping parameters, or a
-   * fresh temporary
-   * 2. save all spilled vars.*)
-  fun procEntryExit1(frame, body) = 
-    case body of
-         T.EXP(ex) => T.MOVE(T.TEMP RV, ex)
-       | _ => body
+        fresh temporary
+     2. save all spilled vars.*)
+  fun procEntryExit1(frame, body) =
+      let
+          val {formals, shift, numlocals, location} = frame
+          val calleeSaveLocals = map (fn (cs) => allocLocal(frame)(false)) calleesaves
+          fun moveCalleeSaves(temp::temps, loc::locals, genMove) =
+              genMove(temp, loc)::moveCalleeSaves(temps, locals, genMove)
+            | moveCalleeSaves([], [], _) = []
+            (* we really shouldn't hit either of these conditions in practice *)
+            | moveCalleeSaves([], _, _) = raise Fail "mismatched lists"
+            | moveCalleeSaves(_, [], _) = raise Fail "mismatched lists"
+          (* write calleesaves to local stack *)
+          val localSaves = moveCalleeSaves(calleesaves, calleeSaveLocals,
+                                           (fn(cs, csl) => T.MOVE(exp csl (T.TEMP FP), T.TEMP cs)))
+          (* restore calleesaves from local stack *)
+          val localRestores = moveCalleeSaves(calleesaves, calleeSaveLocals,
+                                              fn(cs, csl) => T.MOVE(T.TEMP cs, exp csl (T.TEMP FP)))
+      in
+          (* 1. move incoming arguments 2. move calleesaves 3. body 4. restore caleesaves *)
+          seq(shift @ localSaves @ [body] @ localRestores)
+      end
 
-  fun procEntryExit3(frame, body) = body
+  fun procEntryExit2(frame, instrs) =
+      instrs @
+      [Assem.OPER{assem="",
+              src=specialregs @ calleesaves,
+              dst=[], jump=SOME([])}]
+
+  (* 1. Calculate the size of the outgoing parameter space in the frame
+     2. Generate the prologue and epilogue for procedure entry, sp adjustment, and exit *)
+  fun procEntryExit3({formals, shift, numlocals, location}, instrs) =
+      let
+          (* maximum legal value = our max #args + max #args of a child proc + #numlocals *)
+          val outSpace = ((2 * List.length(argregs)) + !numlocals) * wordSize
+          (* 0(sp) := fp, fp := sp, sp++  *)
+          val prologue = String.concat([Symbol.name(location), ":\n",
+                                        "sw $fp, 0($sp)\n",
+                                        "move $fp, $sp\n",
+                                        "addiu $sp, $sp, ", Int.toString(outSpace), "\n"])
+          (* sp := fp, fp := 0(sp), return *)
+          val epilogue = String.concat(["move $sp, $fp\n",
+                                        "lw $fp, 0($sp)\n",
+                                        "jr $ra\n"])
+      in
+          {prolog= prologue, body= instrs, epilog= epilogue}
+      end
 
 end
